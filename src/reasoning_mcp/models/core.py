@@ -48,7 +48,7 @@ class MethodIdentifier(StrEnum):
     SELF_REFLECTION = "self_reflection"
     """Metacognitive reasoning with self-critique and improvement."""
 
-    # Specialized Methods (10)
+    # Specialized Methods (10 + 9 new = 19)
     GRAPH_OF_THOUGHTS = "graph_of_thoughts"
     """Graph-based reasoning with nodes and edges representing thought relationships."""
 
@@ -79,7 +79,35 @@ class MethodIdentifier(StrEnum):
     ANALOGICAL = "analogical"
     """Reasoning by analogy to similar problems or situations."""
 
-    # Advanced Methods (5)
+    # New Specialized Methods (2024-2026 Research)
+    CHAIN_OF_VERIFICATION = "chain_of_verification"
+    """Verify reasoning through explicit verification questions and independent answers."""
+
+    PROGRAM_OF_THOUGHTS = "program_of_thoughts"
+    """Generate executable code to solve problems, then interpret results."""
+
+    THREAD_OF_THOUGHT = "thread_of_thought"
+    """Process long contexts by segmenting and reasoning incrementally."""
+
+    SELF_REFINE = "self_refine"
+    """Iterative self-improvement through generate-feedback-refine cycles."""
+
+    CONTRASTIVE_COT = "contrastive_cot"
+    """Contrast correct and incorrect reasoning to improve accuracy."""
+
+    LOGIC_OF_THOUGHT = "logic_of_thought"
+    """Formal logic-based reasoning with premises, inferences, and conclusions."""
+
+    CUMULATIVE_REASONING = "cumulative_reasoning"
+    """Accumulate verified propositions in a DAG structure."""
+
+    PLAN_AND_SOLVE = "plan_and_solve"
+    """Explicit planning phase before solving, with step decomposition."""
+
+    INDIRECT_REASONING = "indirect_reasoning"
+    """Proof by contradiction - assume negation, derive contradiction."""
+
+    # Advanced Methods (5 + 4 new = 9)
     CAUSAL_REASONING = "causal_reasoning"
     """Analyze cause-effect relationships and causal chains."""
 
@@ -95,7 +123,20 @@ class MethodIdentifier(StrEnum):
     BEAM_SEARCH = "beam_search"
     """Maintain multiple promising reasoning paths simultaneously."""
 
-    # Holistic Methods (5)
+    # New Advanced Methods (2024-2026 Research)
+    REFLEXION = "reflexion"
+    """Self-reflection with episodic memory for learning from past attempts."""
+
+    MUTUAL_REASONING = "mutual_reasoning"
+    """Mutual reasoning (rStar) with discriminator-guided MCTS exploration."""
+
+    DIAGRAM_OF_THOUGHT = "diagram_of_thought"
+    """DAG-based reasoning with proposer-critic-summarizer roles."""
+
+    QUIET_STAR = "quiet_star"
+    """Internal rationale generation before producing outputs."""
+
+    # Holistic Methods (5 + 2 new = 7)
     LATERAL_THINKING = "lateral_thinking"
     """Creative, non-linear reasoning to find novel solutions."""
 
@@ -110,6 +151,207 @@ class MethodIdentifier(StrEnum):
 
     CRASH = "crash"
     """Compact Reasoning And Self-correction Heuristic - iterative self-correction."""
+
+    # New Holistic Methods (2024-2026 Research)
+    EVERYTHING_OF_THOUGHTS = "everything_of_thoughts"
+    """Meta-framework dynamically switching between chain/tree/graph structures."""
+
+    HINT_OF_THOUGHT = "hint_of_thought"
+    """Zero-shot reasoning with structural hints and pseudocode guidance."""
+
+    # 2025 Research Methods (Inference-Time Compute & Advanced Techniques)
+    TEST_TIME_SCALING = "test_time_scaling"
+    """Scale inference-time compute with extended thinking and search (DeepSeek-R1, o1/o3 style)."""
+
+    KEY_CONCEPT_THINKING = "key_concept_thinking"
+    """Extract and reason with key domain concepts before solving (Zheng et al. 2025)."""
+
+    SYZYGY_OF_THOUGHTS = "syzygy_of_thoughts"
+    """Combinatorial symbolic reasoning through alignment of complementary perspectives."""
+
+    THINK_PRM = "think_prm"
+    """Process Reward Model - score and guide reasoning with learned process rewards."""
+
+    FILTER_SUPERVISOR = "filter_supervisor"
+    """Filter-based supervision with self-correction (FS-C pattern)."""
+
+    SIMPLE_TEST_TIME_SCALING = "simple_test_time_scaling"
+    """Budget-aware test-time scaling with wait tokens (s1 by Muennighoff et al. 2025)."""
+
+    # 2024-2025 High-Impact Methods (Widely-Used Techniques)
+    BUFFER_OF_THOUGHTS = "buffer_of_thoughts"
+    """Cache reusable thought templates for efficient multi-step reasoning (NeurIPS 2024)."""
+
+    RSTAR = "rstar"
+    """Self-play mutual reasoning with discriminator-guided code execution (Microsoft 2024)."""
+
+    SELF_DISCOVER = "self_discover"
+    """Discover task-specific reasoning structures before solving (Zhou et al. 2024)."""
+
+    STAR = "star"
+    """Self-Taught Reasoner - bootstrap reasoning from rationale examples (Zelikman et al. 2022)."""
+
+    BEST_OF_N = "best_of_n"
+    """Sample N reasoning paths and select best via reward model or verifier."""
+
+    OUTCOME_REWARD_MODEL = "outcome_reward_model"
+    """Verify solutions using outcome-based reward scoring (ORM pattern)."""
+
+    JOURNEY_LEARNING = "journey_learning"
+    """Learn from the reasoning journey, not just the final answer."""
+
+    TWO_STAGE_GENERATION = "two_stage_generation"
+    """Think-then-answer: extended thinking followed by concise summary (R1/o1 style)."""
+
+    # Wave 15: Foundational & Verification Methods
+    MULTI_AGENT_DEBATE = "multi_agent_debate"
+    """Multiple agents debate to improve reasoning accuracy (Du et al. 2023)."""
+
+    SELF_VERIFICATION = "self_verification"
+    """Forward reasoning + backward verification for error correction (Weng et al. 2022)."""
+
+    FAITHFUL_COT = "faithful_cot"
+    """Ensures reasoning chain faithfully supports the final answer (Lyu et al. 2023)."""
+
+    ZERO_SHOT_COT = "zero_shot_cot"
+    """Simple 'Let's think step by step' trigger for reasoning (Kojima et al. 2022)."""
+
+    ACTIVE_PROMPT = "active_prompt"
+    """Selects examples based on uncertainty for better demonstrations (Diao et al. 2023)."""
+
+    COMPLEXITY_BASED = "complexity_based"
+    """Uses complex examples for better reasoning performance (Fu et al. 2023)."""
+
+    AUTO_COT = "auto_cot"
+    """Automatically generates chain-of-thought examples (Zhang et al. 2022)."""
+
+    ITERATIVE_REFINEMENT = "iterative_refinement"
+    """Multiple passes to progressively refine and improve answers."""
+
+    # Wave 16: Advanced Reasoning & Retrieval Methods
+    GEN_PRM = "gen_prm"
+    """Generative Process Reward Model for test-time compute scaling (Zhao et al. 2025)."""
+
+    META_COT = "meta_cot"
+    """Meta Chain-of-Thought - learning how to think with meta-reasoning (2025)."""
+
+    RETRIEVAL_AUGMENTED_THOUGHTS = "retrieval_augmented_thoughts"
+    """RAT - combines RAG with CoT for grounded reasoning (2024)."""
+
+    COT_RAG = "cot_rag"
+    """Integrates knowledge graphs, RAG, and CoT with pseudo-program prompting (Li et al. 2025)."""
+
+    SC_RAG = "sc_rag"
+    """Self-Corrective RAG with evidence extraction and CoT self-correction (2024)."""
+
+    THINK_ON_GRAPH = "think_on_graph"
+    """ToG - iterative beam search on knowledge graphs for reasoning (Sun et al. 2024)."""
+
+    LAYERED_COT = "layered_cot"
+    """Multi-pass reasoning with layer-by-layer review and adjustment (2025)."""
+
+    COT_DECODING = "cot_decoding"
+    """Elicits CoT reasoning through decoding without explicit prompting (Wang et al. 2024)."""
+
+    # Wave 17: Decomposition, Templates & Adaptive Compute Methods
+    BRANCH_SOLVE_MERGE = "branch_solve_merge"
+    """Decompose task into parallel sub-tasks, solve independently, merge solutions (Saha et al. 2024)."""
+
+    PROCESS_PREFERENCE_MODEL = "process_preference_model"
+    """PPM - step-level preference scoring avoiding naive annotation (rStar-Math 2025)."""
+
+    RSTAR_MATH = "rstar_math"
+    """MCTS-based self-evolution with code-augmented CoT for math reasoning (Guan et al. 2025)."""
+
+    REASONING_PRM = "reasoning_prm"
+    """R-PRM - reasoning-driven process reward with self-evolution and inference scaling (EMNLP 2025)."""
+
+    TYPED_THINKER = "typed_thinker"
+    """Diversify reasoning by categorizing into deductive/inductive/abductive/analogical types (Wang et al. 2024)."""
+
+    COMPUTE_OPTIMAL_SCALING = "compute_optimal_scaling"
+    """Adaptive test-time compute allocation based on problem difficulty (Snell et al. 2024)."""
+
+    SUPER_CORRECT = "super_correct"
+    """Hierarchical thought templates + cross-model DPO for self-correction (Yang et al. 2024)."""
+
+    THOUGHT_PREFERENCE_OPT = "thought_preference_opt"
+    """TPO - train LLMs to generate internal thoughts before responses (Wu et al. 2024)."""
+
+    # Wave 18: Verification, Planning & Agent Methods
+    CHAIN_OF_CODE = "chain_of_code"
+    """LM-augmented code emulator for semantic sub-tasks in reasoning (Li et al. 2024, ICML Oral)."""
+
+    REASONING_VIA_PLANNING = "reasoning_via_planning"
+    """RAP - LLM as world model with MCTS for strategic exploration (Hao et al. 2023, EMNLP)."""
+
+    V_STAR = "v_star"
+    """Training verifiers for self-taught reasoners with DPO on correctness (Hosseini et al. 2024, COLM)."""
+
+    GLORE = "glore"
+    """Global and Local Refinements with stepwise ORM for process supervision (Havrilla et al. 2024, ICML)."""
+
+    DIVERSE_VERIFIER = "diverse_verifier"
+    """DiVeRSe - Diverse Verifier on Reasoning Steps with multiple samples (Li et al. 2023)."""
+
+    REFINER = "refiner"
+    """Generator-critic feedback loop on intermediate reasoning representations (Paul et al. 2024, EACL)."""
+
+    CRITIC = "critic"
+    """Tool-interactive critiquing for self-correction with external tools (Gou et al. 2024, ICLR)."""
+
+    LATS = "lats"
+    """Language Agent Tree Search - unifies reasoning, acting, and planning (Zhou et al. 2024, ICML)."""
+
+    # Wave 19: Cutting-Edge 2025 Methods
+    GRPO = "grpo"
+    """Group Relative Policy Optimization - critic-free RL with group-level comparisons (DeepSeek-R1, Shao et al. 2024)."""
+
+    COGNITIVE_TOOLS = "cognitive_tools"
+    """Modular cognitive operations (analogical, deductive, abductive, inductive) in agentic framework (Ebouky et al. 2025, NeurIPS)."""
+
+    S2R = "s2r"
+    """Self-verification and Self-correction with Reinforcement Learning (arXiv Feb 2025)."""
+
+    SETS = "sets"
+    """Self-Verification and Self-Correction combined - verify then correct iteratively (Chen et al. Jan 2025)."""
+
+    SSR = "ssr"
+    """Socratic Self-Refine - Socratic questioning to drive iterative self-refinement (2025)."""
+
+    FOCUSED_COT = "focused_cot"
+    """Focused Chain-of-Thought - condition-first reasoning that filters irrelevant information (Xu et al. 2025)."""
+
+    AGOT = "agot"
+    """Adaptive Graph of Thoughts - dynamically adapting graph structure during reasoning (2025)."""
+
+    TRAINING_FREE_GRPO = "training_free_grpo"
+    """Training-Free GRPO - inference-time optimization with GRPO benefits without training (Cai et al. Oct 2025)."""
+
+    # Wave 20: Efficiency & Latent Reasoning Methods (2025)
+    CHAIN_OF_DRAFT = "chain_of_draft"
+    """Chain of Draft - minimal 5-word steps for 76% latency reduction (Xu et al. 2025, Zoom)."""
+
+    HYBRID_COT = "hybrid_cot"
+    """HybridCoT - interleave latent and text reasoning for efficiency (ICLR 2026)."""
+
+    GAR = "gar"
+    """Generator-Adversarial Reasoning with trainable discriminator (Xi et al. 2025)."""
+
+    DRO = "dro"
+    """Direct Reasoning Optimization - LLMs self-reward and self-refine (arXiv 2025)."""
+
+    MIND_EVOLUTION = "mind_evolution"
+    """Mind Evolution - genetic algorithm-based population search reasoning (2025)."""
+
+    HIDDEN_COT_DECODING = "hidden_cot_decoding"
+    """Hidden CoT Decoding - efficient CoT without explicit tokens (Wang et al. 2025)."""
+
+    LIGHT_THINKER = "light_thinker"
+    """LightThinker - gist token compression for efficient reasoning (2025)."""
+
+    SPOC = "spoc"
+    """SPOC - Spontaneous Self-Correction without external feedback (2025)."""
 
 
 class MethodCategory(StrEnum):
@@ -232,3 +474,93 @@ class PipelineStageType(StrEnum):
 
     SWITCH = "switch"
     """Select one of multiple execution paths based on a value."""
+
+
+class RouterIdentifier(StrEnum):
+    """Identifiers for all supported reasoning routers.
+
+    Routers dynamically select and allocate compute resources across
+    reasoning methods based on query complexity and task requirements.
+    """
+
+    AUTO_THINK = "auto_think"
+    """Auto-Think - adaptive CoT activation via classifier (Agarwal et al. 2025)."""
+
+    SELF_BUDGETER = "self_budgeter"
+    """SelfBudgeter - token allocation optimization based on problem difficulty."""
+
+    THINK_SWITCHER = "think_switcher"
+    """ThinkSwitcher - Fast/Normal/Slow mode selection for compute efficiency."""
+
+    ROUTER_R1 = "router_r1"
+    """Router-R1 - RL-based multi-round routing with learned policies."""
+
+    GRAPH_ROUTER = "graph_router"
+    """GraphRouter - graph-based model routing for complex task decomposition."""
+
+    BEST_ROUTE = "best_route"
+    """Best-Route - optimal test-time compute allocation across methods."""
+
+    MAS_ROUTER = "mas_router"
+    """MasRouter - multi-agent system routing for distributed reasoning."""
+
+    RAG_ROUTER = "rag_router"
+    """RAGRouter - retrieval-aware routing for knowledge-intensive tasks."""
+
+
+class VerifierIdentifier(StrEnum):
+    """Identifiers for all supported reasoning verifiers (PRMs).
+
+    Verifiers score and validate reasoning steps, providing process rewards
+    to guide search and improve answer quality.
+    """
+
+    THINK_PRM = "think_prm"
+    """ThinkPRM - generative CoT verifier with 8K labels (Qwang et al. 2025)."""
+
+    GEN_PRM = "gen_prm"
+    """GenPRM - generative process rewards with explicit CoT verification."""
+
+    R_PRM = "r_prm"
+    """R-PRM - reasoning-driven process rewards with self-evolution."""
+
+    VERSA_PRM = "versa_prm"
+    """VersaPRM - versatile multi-domain process reward model."""
+
+    RRM = "rrm"
+    """RRM - Reward Reasoning Models with deliberative reward scoring."""
+
+    GAR_DISCRIMINATOR = "gar_discriminator"
+    """GAR-Discriminator - adversarial discriminator for reasoning verification."""
+
+    OR_PRM = "or_prm"
+    """OR-PRM - outcome-aware process rewards combining step and outcome signals."""
+
+
+class EnsemblerIdentifier(StrEnum):
+    """Identifiers for all supported reasoning ensemblers.
+
+    Ensemblers combine multiple models or reasoning paths to improve
+    accuracy and robustness through diverse aggregation strategies.
+    """
+
+    DER = "der"
+    """DER - Dynamic Ensemble Reasoning as MDP (Shen et al. 2024)."""
+
+    MOA = "moa"
+    """MoA - Mixture of Agents with layered model collaboration."""
+
+    SLM_MUX = "slm_mux"
+    """SLM-MUX - small model orchestration for efficient ensemble."""
+
+    MULTI_AGENT_VERIFICATION = "multi_agent_verification"
+    """Multi-Agent Verification - independent cross-verification ensemble."""
+
+    EMA_FUSION = "ema_fusion"
+    """EMAFusion - self-optimizing LLM integration with adaptive weights."""
+
+    MODEL_SWITCH = "model_switch"
+    """ModelSwitch - multi-LLM repeated sampling with dynamic selection."""
+
+    TRAINING_FREE_ORCHESTRATION = "training_free_orchestration"
+    """Training-Free Orchestration - central controller routing without training."""
