@@ -21,7 +21,7 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 dependencies = [
-    "fastmcp>=2.0.0",
+    "fastmcp>=2.14.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
     "structlog>=24.0.0",
@@ -29,6 +29,7 @@ dependencies = [
     "typer>=0.21.0",
     "anyio>=4.0.0",
     "httpx>=0.27.0",
+    "pyjwt>=2.8.0",
 ]
 
 [project.optional-dependencies]
@@ -40,6 +41,22 @@ dev = [
     "ruff>=0.6.0",
     "mypy>=1.11.0",
     "pre-commit>=3.8.0",
+]
+observability = [
+    "opentelemetry-api>=1.20.0",
+    "opentelemetry-sdk>=1.20.0",
+    "opentelemetry-exporter-otlp>=1.20.0",
+    "opentelemetry-instrumentation-httpx>=0.44b0",
+]
+cache = [
+    "diskcache>=5.6.0",
+]
+graphs = [
+    "networkx>=3.0",
+    "matplotlib>=3.7.0",
+]
+all = [
+    "reasoning-mcp[observability,cache,graphs]",
 ]
 
 [project.scripts]
@@ -57,10 +74,35 @@ packages = ["src/reasoning_mcp"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+exclude = [
+    ".claude",
+    ".git",
+    ".venv",
+    "__pycache__",
+    "docs",
+    "*.pyi",
+    "verify_*.py",
+]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "TCH"]
-ignore = []
+ignore = [
+    "UP047",   # PEP 695 type params - requires careful migration
+    "E501",    # Line too long - many in docstrings/f-strings where breaking reduces readability
+    "B008",    # Function call in default arg - Typer pattern for CLI options
+    "B017",    # Assert raises exception - intentional test pattern
+    "B023",    # Function uses loop variable - sometimes intentional pattern in tests
+    "B904",    # Raise without from - intentional for CLI exits (typer.Exit)
+    "E402",    # Module import not at top - often intentional for circular import avoidance
+    "SIM102",  # Collapsible if - sometimes reduces readability
+    "SIM105",  # Suppressible exception - contextlib.suppress not always clearer
+    "SIM108",  # If-else instead of ternary - readability preference
+    "SIM116",  # If-else dict lookup - complex f-strings make dict less readable
+    "SIM117",  # Multiple with statements - readability preference
+    "TC001",   # Typing-only first-party import - false positive for Pydantic models
+    "TC002",   # Typing-only third-party import - false positive for FastMCP/Pydantic
+    "TC003",   # Typing-only standard library import - false positive for Pydantic models
+]
 fixable = ["ALL"]
 unfixable = []
 
@@ -122,6 +164,9 @@ omit = [
 precision = 2
 show_missing = true
 skip_covered = false
+# Current: 75.95%, Target: 85%+
+# Setting fail_under to 76 to prevent regression while working toward target
+fail_under = 76
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
@@ -135,3 +180,8 @@ exclude_lines = [
 
 [tool.coverage.html]
 directory = "htmlcov"
+
+[dependency-groups]
+dev = [
+    "ty>=0.0.12",
+]
