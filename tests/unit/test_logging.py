@@ -6,8 +6,6 @@ import logging
 import tempfile
 from pathlib import Path
 
-import pytest
-
 from reasoning_mcp.logging import LogContext, get_logger, logger, setup_logging
 
 

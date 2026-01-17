@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 MOA_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.MOA,
@@ -81,11 +80,11 @@ class Moa:
         # Simple majority/best selection
         if not solutions:
             return ""
-        
+
         # Score solutions
         scored = [(s, self._score_solution(s)) for s in solutions]
         scored.sort(key=lambda x: x[1], reverse=True)
-        
+
         return scored[0][0]
 
     def _score_solution(self, solution: str) -> float:
@@ -115,7 +114,7 @@ class Moa:
             raise RuntimeError("MoA must be initialized")
 
         # Use all available models across layers
-        return available_models[:MOA_METADATA.max_models]
+        return available_models[: MOA_METADATA.max_models]
 
     async def health_check(self) -> bool:
         return self._initialized

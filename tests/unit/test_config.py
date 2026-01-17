@@ -7,7 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from reasoning_mcp.config import Settings, configure_settings, get_settings
+from reasoning_mcp.config import (
+    DebugConfig,
+    Settings,
+    VerificationConfig,
+    configure_settings,
+    get_settings,
+)
+from reasoning_mcp.models.debug import TraceLevel
 
 
 class TestSettings:
@@ -31,8 +38,10 @@ class TestSettings:
         assert settings.max_parallel_stages == 8
         assert settings.plugins_dir == Path("plugins")
         assert settings.enable_plugins is True
-        assert settings.debug is False
         assert settings.enable_tracing is False
+        # Debug is now a DebugConfig object
+        assert hasattr(settings, "debug")
+        assert isinstance(settings.debug, DebugConfig)
 
     def test_session_timeout_minimum(self):
         """Test session_timeout has minimum validation."""
@@ -184,9 +193,9 @@ class TestSettings:
         settings = Settings(enable_plugins=False)
         assert settings.enable_plugins is False
 
-        # Test debug
-        settings = Settings(debug=True)
-        assert settings.debug is True
+        # Test debug (now DebugConfig)
+        settings = Settings(debug=DebugConfig(enabled=True))
+        assert settings.debug.enabled is True
 
         # Test enable_tracing
         settings = Settings(enable_tracing=True)
@@ -214,20 +223,17 @@ class TestSettings:
     def test_environment_variable_prefix(self):
         """Test settings can be configured via environment variables."""
         # Set environment variables
-        os.environ["REASONING_MCP_DEBUG"] = "true"
         os.environ["REASONING_MCP_LOG_LEVEL"] = "DEBUG"
         os.environ["REASONING_MCP_SESSION_TIMEOUT"] = "7200"
         os.environ["REASONING_MCP_MAX_SESSIONS"] = "200"
 
         try:
             settings = Settings()
-            assert settings.debug is True
             assert settings.log_level == "DEBUG"
             assert settings.session_timeout == 7200
             assert settings.max_sessions == 200
         finally:
             # Clean up
-            del os.environ["REASONING_MCP_DEBUG"]
             del os.environ["REASONING_MCP_LOG_LEVEL"]
             del os.environ["REASONING_MCP_SESSION_TIMEOUT"]
             del os.environ["REASONING_MCP_MAX_SESSIONS"]
@@ -272,7 +278,7 @@ class TestSettings:
         """Test creating Settings with multiple overrides."""
         settings = Settings(
             server_name="test-server",
-            debug=True,
+            debug=DebugConfig(enabled=True),
             log_level="DEBUG",
             session_timeout=1800,
             max_sessions=50,
@@ -281,7 +287,7 @@ class TestSettings:
         )
 
         assert settings.server_name == "test-server"
-        assert settings.debug is True
+        assert settings.debug.enabled is True
         assert settings.log_level == "DEBUG"
         assert settings.session_timeout == 1800
         assert settings.max_sessions == 50
@@ -294,13 +300,19 @@ class TestGetSettings:
 
     def setup_method(self):
         """Reset global settings before each test."""
-        import reasoning_mcp.config
-        reasoning_mcp.config._settings = None
+        import sys
+
+        # Use sys.modules to get the same module instance used by get_settings
+        config_module = sys.modules["reasoning_mcp.config"]
+        config_module._settings = None
 
     def teardown_method(self):
         """Clean up global settings after each test."""
-        import reasoning_mcp.config
-        reasoning_mcp.config._settings = None
+        import sys
+
+        # Use sys.modules to get the same module instance used by get_settings
+        config_module = sys.modules["reasoning_mcp.config"]
+        config_module._settings = None
 
     def test_returns_settings_instance(self):
         """Test get_settings returns a Settings instance."""
@@ -315,14 +327,18 @@ class TestGetSettings:
 
     def test_lazy_initialization(self):
         """Test settings are created only on first access."""
-        import reasoning_mcp.config
+        import sys
+
+        # Get the config module from sys.modules to ensure we use the same
+        # module instance that get_settings operates on
+        config_module = sys.modules["reasoning_mcp.config"]
 
         # Initially None
-        assert reasoning_mcp.config._settings is None
+        assert config_module._settings is None
 
         # Created on first access
         settings = get_settings()
-        assert reasoning_mcp.config._settings is settings
+        assert config_module._settings is settings
 
         # Same instance on subsequent access
         assert get_settings() is settings
@@ -333,24 +349,30 @@ class TestConfigureSettings:
 
     def setup_method(self):
         """Reset global settings before each test."""
-        import reasoning_mcp.config
-        reasoning_mcp.config._settings = None
+        import sys
+
+        # Use sys.modules to get the same module instance used by configure_settings
+        config_module = sys.modules["reasoning_mcp.config"]
+        config_module._settings = None
 
     def teardown_method(self):
         """Clean up global settings after each test."""
-        import reasoning_mcp.config
-        reasoning_mcp.config._settings = None
+        import sys
+
+        # Use sys.modules to get the same module instance used by configure_settings
+        config_module = sys.modules["reasoning_mcp.config"]
+        config_module._settings = None
 
     def test_applies_overrides(self):
         """Test configure_settings applies overrides."""
-        settings = configure_settings(debug=True, log_level="DEBUG")
-        assert settings.debug is True
+        settings = configure_settings(debug=DebugConfig(enabled=True), log_level="DEBUG")
+        assert settings.debug.enabled is True
         assert settings.log_level == "DEBUG"
 
     def test_returns_new_instance(self):
         """Test configure_settings creates new instance."""
         original = get_settings()
-        new = configure_settings(debug=True)
+        new = configure_settings(debug=DebugConfig(enabled=True))
 
         # After configure_settings, get_settings should return the new one
         assert get_settings() is new
@@ -376,13 +398,13 @@ class TestConfigureSettings:
     def test_multiple_configure_calls(self):
         """Test multiple calls to configure_settings."""
         # First configuration
-        settings1 = configure_settings(debug=True)
-        assert settings1.debug is True
+        settings1 = configure_settings(debug=DebugConfig(enabled=True))
+        assert settings1.debug.enabled is True
         assert settings1.log_level == "INFO"  # Default
 
         # Second configuration
         settings2 = configure_settings(log_level="ERROR")
-        assert settings2.debug is False  # Reset to default
+        assert settings2.debug.enabled is False  # Reset to default
         assert settings2.log_level == "ERROR"
 
         # get_settings returns the latest
@@ -397,7 +419,7 @@ class TestConfigureSettings:
         """Test configure_settings with multiple overrides."""
         settings = configure_settings(
             server_name="configured-server",
-            debug=True,
+            debug=DebugConfig(enabled=True),
             log_level="WARNING",
             session_timeout=1800,
             max_pipeline_depth=50,
@@ -405,7 +427,7 @@ class TestConfigureSettings:
         )
 
         assert settings.server_name == "configured-server"
-        assert settings.debug is True
+        assert settings.debug.enabled is True
         assert settings.log_level == "WARNING"
         assert settings.session_timeout == 1800
         assert settings.max_pipeline_depth == 50
@@ -423,12 +445,14 @@ class TestSettingsIntegration:
     def setup_method(self):
         """Store original environment and reset settings."""
         import reasoning_mcp.config
+
         reasoning_mcp.config._settings = None
         self._original_env = os.environ.copy()
 
     def teardown_method(self):
         """Restore original environment and clean up settings."""
         import reasoning_mcp.config
+
         reasoning_mcp.config._settings = None
 
         # Restore original environment
@@ -438,28 +462,170 @@ class TestSettingsIntegration:
     def test_environment_overrides_defaults(self):
         """Test environment variables override default values."""
         os.environ["REASONING_MCP_SERVER_NAME"] = "env-server"
-        os.environ["REASONING_MCP_DEBUG"] = "true"
         os.environ["REASONING_MCP_MAX_SESSIONS"] = "250"
 
         settings = Settings()
         assert settings.server_name == "env-server"
-        assert settings.debug is True
         assert settings.max_sessions == 250
 
     def test_constructor_overrides_environment(self):
         """Test constructor arguments override environment variables."""
-        os.environ["REASONING_MCP_DEBUG"] = "true"
         os.environ["REASONING_MCP_LOG_LEVEL"] = "ERROR"
 
-        settings = Settings(debug=False, log_level="DEBUG")
-        assert settings.debug is False
+        settings = Settings(debug=DebugConfig(enabled=False), log_level="DEBUG")
+        assert settings.debug.enabled is False
         assert settings.log_level == "DEBUG"
 
     def test_mixed_environment_and_defaults(self):
         """Test mixing environment variables with defaults."""
-        os.environ["REASONING_MCP_DEBUG"] = "true"
+        os.environ["REASONING_MCP_SERVER_NAME"] = "test-server"
 
         settings = Settings()
-        assert settings.debug is True  # From environment
+        assert settings.server_name == "test-server"  # From environment
         assert settings.log_level == "INFO"  # Default
         assert settings.session_timeout == 3600  # Default
+
+
+class TestDebugConfig:
+    """Tests for DebugConfig class."""
+
+    def test_default_values(self):
+        """Test DebugConfig has correct default values."""
+        config = DebugConfig()
+        assert config.enabled is False
+        assert config.default_level == TraceLevel.STANDARD
+        assert config.storage_type == "memory"
+        assert config.storage_path is None
+        assert config.auto_export is False
+        assert config.export_format == "json"
+
+    def test_custom_values(self):
+        """Test DebugConfig accepts custom values."""
+        config = DebugConfig(
+            enabled=True,
+            default_level=TraceLevel.VERBOSE,
+            storage_type="file",
+            storage_path=Path("/tmp/traces"),
+            auto_export=True,
+            export_format="html",
+        )
+        assert config.enabled is True
+        assert config.default_level == TraceLevel.VERBOSE
+        assert config.storage_type == "file"
+        assert config.storage_path == Path("/tmp/traces")
+        assert config.auto_export is True
+        assert config.export_format == "html"
+
+    def test_sqlite_storage(self):
+        """Test DebugConfig with sqlite storage."""
+        config = DebugConfig(storage_type="sqlite", storage_path=Path("/tmp/traces.db"))
+        assert config.storage_type == "sqlite"
+
+    def test_invalid_storage_type(self):
+        """Test DebugConfig rejects invalid storage_type."""
+        with pytest.raises(ValueError):
+            DebugConfig(storage_type="invalid")  # type: ignore
+
+    def test_serialization(self):
+        """Test DebugConfig can be serialized and deserialized."""
+        config = DebugConfig(enabled=True)
+        data = config.model_dump()
+        assert data["enabled"] is True
+
+        # Reconstruct
+        config2 = DebugConfig.model_validate(data)
+        assert config2.enabled is True
+
+
+class TestConfigDebugField:
+    """Tests for Settings.debug field (DebugConfig)."""
+
+    def test_config_has_debug_field(self):
+        """Test Settings has debug field."""
+        config = Settings()
+        assert hasattr(config, "debug")
+        assert isinstance(config.debug, DebugConfig)
+
+    def test_config_debug_customizable(self):
+        """Test Settings.debug can be customized."""
+        config = Settings(debug=DebugConfig(enabled=True))
+        assert config.debug.enabled is True
+
+
+class TestVerificationConfig:
+    """Tests for VerificationConfig class."""
+
+    def test_default_values(self):
+        """Test VerificationConfig has correct default values."""
+        config = VerificationConfig()
+        assert config.enabled is True
+        assert config.extractor_type == "hybrid"
+        assert config.min_confidence == 0.5
+        assert config.check_hallucinations is True
+
+    def test_custom_values(self):
+        """Test VerificationConfig accepts custom values."""
+        config = VerificationConfig(
+            enabled=False,
+            extractor_type="llm",
+            min_confidence=0.8,
+            check_hallucinations=False,
+        )
+        assert config.enabled is False
+        assert config.extractor_type == "llm"
+        assert config.min_confidence == 0.8
+        assert config.check_hallucinations is False
+
+    def test_min_confidence_range_validation(self):
+        """Test min_confidence validates range (0.0 to 1.0)."""
+        # Valid values
+        config = VerificationConfig(min_confidence=0.0)
+        assert config.min_confidence == 0.0
+
+        config = VerificationConfig(min_confidence=1.0)
+        assert config.min_confidence == 1.0
+
+        config = VerificationConfig(min_confidence=0.75)
+        assert config.min_confidence == 0.75
+
+        # Below minimum
+        with pytest.raises(ValueError):
+            VerificationConfig(min_confidence=-0.1)
+
+        # Above maximum
+        with pytest.raises(ValueError):
+            VerificationConfig(min_confidence=1.1)
+
+
+class TestConfigVerificationField:
+    """Tests for Settings.verification field (VerificationConfig)."""
+
+    def setup_method(self):
+        """Reset global settings before each test."""
+        import reasoning_mcp.config
+
+        reasoning_mcp.config._settings = None
+
+    def teardown_method(self):
+        """Clean up global settings after each test."""
+        import reasoning_mcp.config
+
+        reasoning_mcp.config._settings = None
+
+    def test_config_has_verification_field(self):
+        """Test Settings has verification attribute."""
+        settings = get_settings()
+        assert hasattr(settings, "verification")
+
+    def test_verification_is_verification_config_instance(self):
+        """Test verification is a VerificationConfig instance."""
+        settings = get_settings()
+        assert isinstance(settings.verification, VerificationConfig)
+
+    def test_verification_default_values(self):
+        """Test verification has default values applied."""
+        settings = get_settings()
+        assert settings.verification.enabled is True
+        assert settings.verification.extractor_type == "hybrid"
+        assert settings.verification.min_confidence == 0.5
+        assert settings.verification.check_hallucinations is True

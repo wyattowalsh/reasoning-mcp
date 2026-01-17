@@ -265,13 +265,15 @@ class TestContinueReasoning:
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.COUNTERFACTUAL,
             content="Test",
-            metadata={"stage": "baseline"}
+            metadata={"stage": "baseline"},
         )
         with pytest.raises(RuntimeError, match="must be initialized before continuation"):
             await counterfactual_method.continue_reasoning(session, thought)
 
     @pytest.mark.asyncio
-    async def test_continue_from_baseline_identifies_variables(self, counterfactual_method, session):
+    async def test_continue_from_baseline_identifies_variables(
+        self, counterfactual_method, session
+    ):
         """Test continuing from baseline identifies variables."""
         await counterfactual_method.initialize()
         baseline = await counterfactual_method.execute(session, "Investment decision")
@@ -335,7 +337,7 @@ class TestScenarioGeneration:
             session,
             variables,
             guidance="What if interest rates were 2% higher?",
-            context={"branch": True}
+            context={"branch": True},
         )
 
         assert scenario.type == ThoughtType.BRANCH
@@ -351,14 +353,16 @@ class TestScenarioGeneration:
         variables = await counterfactual_method.continue_reasoning(session, baseline)
 
         scenario1 = await counterfactual_method.continue_reasoning(
-            session, variables,
+            session,
+            variables,
             guidance="What if I accepted the job offer?",
-            context={"branch": True}
+            context={"branch": True},
         )
         scenario2 = await counterfactual_method.continue_reasoning(
-            session, variables,
+            session,
+            variables,
             guidance="What if I pursued further education?",
-            context={"branch": True}
+            context={"branch": True},
         )
 
         assert scenario1.type == ThoughtType.BRANCH
@@ -392,9 +396,7 @@ class TestScenarioGeneration:
 
         guidance_text = "What if market conditions changed?"
         scenario = await counterfactual_method.continue_reasoning(
-            session, variables,
-            guidance=guidance_text,
-            context={"branch": True}
+            session, variables, guidance=guidance_text, context={"branch": True}
         )
 
         assert guidance_text in scenario.content
@@ -503,9 +505,10 @@ class TestAntecedentModification:
         variables = await counterfactual_method.continue_reasoning(session, baseline)
 
         minimal = await counterfactual_method.continue_reasoning(
-            session, variables,
+            session,
+            variables,
             guidance="What if timing was 5 minutes earlier?",
-            context={"branch": True}
+            context={"branch": True},
         )
 
         assert minimal.type == ThoughtType.BRANCH
@@ -521,9 +524,10 @@ class TestAntecedentModification:
         variables = await counterfactual_method.continue_reasoning(session, baseline)
 
         radical = await counterfactual_method.continue_reasoning(
-            session, variables,
+            session,
+            variables,
             guidance="What if I became an artist instead of engineer?",
-            context={"branch": True}
+            context={"branch": True},
         )
 
         assert radical.type == ThoughtType.BRANCH
@@ -537,9 +541,10 @@ class TestAntecedentModification:
         variables = await counterfactual_method.continue_reasoning(session, baseline)
 
         multi_var = await counterfactual_method.continue_reasoning(
-            session, variables,
+            session,
+            variables,
             guidance="What if timing, amount, and asset class all differed?",
-            context={"branch": True}
+            context={"branch": True},
         )
 
         assert multi_var.type == ThoughtType.BRANCH
@@ -603,9 +608,7 @@ class TestScenarioComparison:
         variables = await counterfactual_method.continue_reasoning(session, baseline)
 
         scenario = await counterfactual_method.continue_reasoning(
-            session, variables,
-            guidance="Alternative scenario",
-            context={"branch": True}
+            session, variables, guidance="Alternative scenario", context={"branch": True}
         )
 
         assert "baseline" in scenario.content.lower()
@@ -666,7 +669,10 @@ class TestInsightExtraction:
         )
 
         assert conclusion.type == ThoughtType.CONCLUSION
-        assert "recommendation" in conclusion.content.lower() or "assessment" in conclusion.content.lower()
+        assert (
+            "recommendation" in conclusion.content.lower()
+            or "assessment" in conclusion.content.lower()
+        )
 
 
 # ============================================================================
@@ -775,7 +781,7 @@ class TestEdgeCases:
         baseline = await counterfactual_method.execute(session, "Decision")
 
         current = baseline
-        for i in range(5):
+        for _i in range(5):
             current = await counterfactual_method.continue_reasoning(session, current)
 
         assert current.depth == 5
@@ -803,9 +809,7 @@ class TestEdgeCases:
 
         for i in range(5):
             await counterfactual_method.continue_reasoning(
-                session, variables,
-                guidance=f"Scenario {i+1}",
-                context={"branch": True}
+                session, variables, guidance=f"Scenario {i + 1}", context={"branch": True}
             )
 
         assert len(counterfactual_method._scenarios) == 5

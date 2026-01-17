@@ -17,13 +17,12 @@ The pipeline DSL enables:
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Annotated, Any, Literal, Union
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from reasoning_mcp.models.core import MethodIdentifier, PipelineStageType
-
 
 # ============================================================================
 # Helper Models (Frozen - Immutable Configuration)
@@ -815,14 +814,12 @@ class SwitchPipeline(BaseModel):
 # ============================================================================
 
 Pipeline = Annotated[
-    Union[
-        MethodStage,
-        SequencePipeline,
-        ParallelPipeline,
-        ConditionalPipeline,
-        LoopPipeline,
-        SwitchPipeline,
-    ],
+    MethodStage
+    | SequencePipeline
+    | ParallelPipeline
+    | ConditionalPipeline
+    | LoopPipeline
+    | SwitchPipeline,
     Field(discriminator="stage_type"),
 ]
 """Discriminated union of all pipeline stage types.

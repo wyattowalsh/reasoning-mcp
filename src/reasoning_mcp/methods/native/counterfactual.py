@@ -10,13 +10,17 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
     ThoughtType,
 )
 from reasoning_mcp.models.thought import ThoughtNode
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from reasoning_mcp.models import Session
@@ -30,16 +34,18 @@ COUNTERFACTUAL_METADATA = MethodMetadata(
     "Establishes baseline, identifies key variables, generates counterfactual scenarios, "
     "and analyzes outcome differences to gain insights.",
     category=MethodCategory.ADVANCED,
-    tags=frozenset({
-        "counterfactual",
-        "what-if",
-        "scenarios",
-        "alternatives",
-        "decision-analysis",
-        "causality",
-        "comparison",
-        "hypothetical",
-    }),
+    tags=frozenset(
+        {
+            "counterfactual",
+            "what-if",
+            "scenarios",
+            "alternatives",
+            "decision-analysis",
+            "causality",
+            "comparison",
+            "hypothetical",
+        }
+    ),
     complexity=4,  # Medium complexity - systematic scenario analysis
     supports_branching=True,  # Can branch for multiple counterfactual scenarios
     supports_revision=True,  # Can revise scenarios and analyses
@@ -67,7 +73,7 @@ COUNTERFACTUAL_METADATA = MethodMetadata(
 )
 
 
-class Counterfactual:
+class Counterfactual(ReasoningMethodBase):
     """Counterfactual Reasoning method implementation.
 
     This class implements counterfactual reasoning - a systematic approach to
@@ -128,6 +134,8 @@ class Counterfactual:
         self._baseline_established = False
         self._variables_identified = False
         self._scenarios: list[str] = []
+        self._use_sampling: bool = True
+        self._execution_context: Any = None
 
     @property
     def identifier(self) -> str:
@@ -190,6 +198,7 @@ class Counterfactual:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         """Execute the Counterfactual Reasoning method.
 
@@ -201,6 +210,7 @@ class Counterfactual:
             session: The current reasoning session
             input_text: The decision or situation to analyze counterfactually
             context: Optional context including baseline information
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the baseline scenario establishment
@@ -225,6 +235,14 @@ class Counterfactual:
                 "Counterfactual Reasoning method must be initialized before execution"
             )
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = (
+            execution_context is not None
+            and hasattr(execution_context, "can_sample")
+            and execution_context.can_sample
+        )
+        self._execution_context = execution_context
+
         # Reset for new execution
         self._step_counter = 1
         self._current_stage = "baseline"
@@ -233,7 +251,10 @@ class Counterfactual:
         self._scenarios = []
 
         # Generate baseline scenario content
-        content = self._generate_baseline(input_text, context)
+        if self._use_sampling:
+            content = await self._sample_baseline(input_text, context)
+        else:
+            content = self._generate_baseline(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -248,6 +269,7 @@ class Counterfactual:
                 "stage": "baseline",
                 "reasoning_type": "counterfactual",
                 "baseline_established": True,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -264,6 +286,7 @@ class Counterfactual:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         """Continue counterfactual reasoning from a previous thought.
 
@@ -278,6 +301,7 @@ class Counterfactual:
             previous_thought: The thought to continue from
             guidance: Optional guidance (e.g., "identify variables", "explore scenario X")
             context: Optional context (e.g., {"branch": True} for scenario exploration)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the counterfactual reasoning
@@ -310,6 +334,14 @@ class Counterfactual:
             raise RuntimeError(
                 "Counterfactual Reasoning method must be initialized before continuation"
             )
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = (
+            execution_context is not None
+            and hasattr(execution_context, "can_sample")
+            and execution_context.can_sample
+        )
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -348,12 +380,20 @@ class Counterfactual:
         self._current_stage = next_stage
 
         # Generate content based on stage
-        content = self._generate_continuation(
-            previous_thought=previous_thought,
-            stage=next_stage,
-            guidance=guidance,
-            context=context,
-        )
+        if self._use_sampling:
+            content = await self._sample_continuation(
+                previous_thought=previous_thought,
+                stage=next_stage,
+                guidance=guidance,
+                context=context,
+            )
+        else:
+            content = self._generate_continuation(
+                previous_thought=previous_thought,
+                stage=next_stage,
+                guidance=guidance,
+                context=context,
+            )
 
         # Calculate confidence
         confidence = self._calculate_confidence(
@@ -377,6 +417,7 @@ class Counterfactual:
                 "reasoning_type": "counterfactual",
                 "scenarios_explored": len(self._scenarios),
                 "is_branch": is_branch,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -591,9 +632,146 @@ class Counterfactual:
         depth_penalty = min(0.15, depth * 0.02)
 
         # Adjust for number of scenarios (more scenarios = better analysis)
-        scenario_bonus = min(0.1, num_scenarios * 0.02) if stage in ("analysis", "synthesis", "conclusion") else 0
+        scenario_bonus = (
+            min(0.1, num_scenarios * 0.02)
+            if stage in ("analysis", "synthesis", "conclusion")
+            else 0
+        )
 
         confidence = base - depth_penalty + scenario_bonus
 
         # Clamp to valid range
         return max(0.3, min(0.95, confidence))
+
+    async def _sample_baseline(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate baseline scenario using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        actual counterfactual baseline analysis rather than placeholder content.
+
+        Args:
+            input_text: The decision or situation to analyze
+            context: Optional context with baseline information
+
+        Returns:
+            The content for the baseline thought
+        """
+        baseline_info = ""
+        if context and "baseline" in context:
+            baseline_info = f"\n\nBaseline context: {context['baseline']}"
+
+        system_prompt = """You are a counterfactual reasoning expert analyzing alternative scenarios.
+Your task is to establish the baseline scenario - the actual situation or decision that occurred.
+This baseline will serve as the reference point for all alternative 'what-if' scenarios.
+
+Structure your analysis with:
+1. Clear statement of what actually happened or the current state
+2. Key outcomes that were observed
+3. Current satisfaction/regret level
+4. Context and circumstances that led to this baseline
+5. Brief indication of what will be explored next
+
+Be factual and thorough about the baseline scenario."""
+
+        user_prompt = f"""Question/Decision: {input_text}{baseline_info}
+
+Establish the baseline scenario for this counterfactual analysis. Describe:
+- What actually happened or the current state
+- Key outcomes observed
+- Context and circumstances
+- Why this baseline matters for counterfactual exploration"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_baseline(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
+        )
+
+    async def _sample_continuation(
+        self,
+        previous_thought: ThoughtNode,
+        stage: str,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate continuation using LLM sampling.
+
+        Uses the execution context's sampling capability to continue
+        counterfactual analysis from a previous thought.
+
+        Args:
+            previous_thought: The thought to build upon
+            stage: Current stage of counterfactual reasoning
+            guidance: Optional guidance for this step
+            context: Optional additional context
+
+        Returns:
+            The content for the continuation thought
+        """
+        guidance_text = f"\nGuidance: {guidance}" if guidance else ""
+        context_text = f"\nAdditional Context: {context}" if context else ""
+
+        stage_descriptions = {
+            "variables": (
+                "Identify key variables that could have been different from the baseline. "
+                "Consider decisions made, timing, external factors, available information, "
+                "resources, and environmental conditions. Assess likelihood, impact, and controllability."
+            ),
+            "scenarios": (
+                "Generate counterfactual scenarios by altering key variables. "
+                "Describe what changes from baseline, initial conditions, likely chain of events, "
+                "expected outcomes, and how they compare to the baseline."
+            ),
+            "analysis": (
+                "Analyze outcome differences across all counterfactual scenarios. "
+                "Compare outcomes, identify causal relationships, determine best/worst cases, "
+                "assess robustness of baseline decision, and identify critical variables."
+            ),
+            "synthesis": (
+                "Synthesize insights from all scenarios explored. "
+                "Develop causal understanding, assess decision quality, analyze regret, "
+                "extract lessons learned, and identify robust strategies."
+            ),
+            "conclusion": (
+                "Provide final assessment of the counterfactual analysis. "
+                "Evaluate baseline scenario, identify best alternative, determine key factors, "
+                "and assess overall decision quality with actionable insights."
+            ),
+        }
+
+        stage_instruction = stage_descriptions.get(
+            stage,
+            "Continue the counterfactual analysis, exploring alternative scenarios and their implications.",
+        )
+
+        system_prompt = f"""You are a counterfactual reasoning expert continuing a systematic analysis.
+Current Stage: {stage.replace("_", " ").title()}
+
+{stage_instruction}
+
+Build upon the previous analysis with clear logical connections and explicit counterfactual reasoning.
+Compare scenarios to the baseline systematically."""
+
+        user_prompt = f"""Previous Analysis (Step {previous_thought.step_number}):
+{previous_thought.content}
+
+Current Stage: {stage.replace("_", " ").title()}
+{guidance_text}{context_text}
+
+Continue the counterfactual analysis for this stage, building on the previous step."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_continuation(
+                previous_thought, stage, guidance, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
+        )

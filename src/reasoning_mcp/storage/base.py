@@ -7,7 +7,7 @@ enabling persistence of reasoning sessions across server restarts.
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from reasoning_mcp.models.session import Session
@@ -110,7 +110,7 @@ class StorageBackend(ABC):
         pass
 
     @abstractmethod
-    async def get_session_metadata(self, session_id: str) -> dict | None:
+    async def get_session_metadata(self, session_id: str) -> dict[str, Any] | None:
         """Get session metadata without loading the full graph.
 
         This allows quick access to session info (status, created_at, etc.)
@@ -163,6 +163,11 @@ class StorageBackend(ABC):
         """Async context manager entry."""
         return self
 
-    async def __aexit__(self, exc_type, exc_val, exc_tb) -> None:
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         """Async context manager exit - ensures close is called."""
         await self.close()

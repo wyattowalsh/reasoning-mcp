@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,6 +19,7 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -29,14 +30,16 @@ SELF_ASK_METADATA = MethodMetadata(
     description="Decompose questions into subquestions and answer them iteratively. "
     "Uses recursive follow-up questioning to build understanding progressively.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "self-ask",
-        "decomposition",
-        "subquestions",
-        "recursive",
-        "progressive",
-        "question-driven",
-    }),
+    tags=frozenset(
+        {
+            "self-ask",
+            "decomposition",
+            "subquestions",
+            "recursive",
+            "progressive",
+            "question-driven",
+        }
+    ),
     complexity=4,  # Medium complexity - requires question decomposition
     supports_branching=False,  # Linear decomposition
     supports_revision=True,  # Can revise questions and answers
@@ -61,7 +64,7 @@ SELF_ASK_METADATA = MethodMetadata(
 )
 
 
-class SelfAsk:
+class SelfAsk(ReasoningMethodBase):
     """Self-Ask reasoning method implementation.
 
     This class implements the Self-Ask reasoning pattern, which decomposes complex
@@ -110,6 +113,8 @@ class SelfAsk:
         self._step_counter = 0
         self._question_stack: list[str] = []  # Track pending sub-questions
         self._answered_questions: dict[str, str] = {}  # Track Q&A pairs
+        self._use_sampling = False
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -170,6 +175,7 @@ class SelfAsk:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Self-Ask method.
 
@@ -200,9 +206,11 @@ class SelfAsk:
             >>> assert thought.method_id == MethodIdentifier.SELF_ASK
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Self-Ask method must be initialized before execution"
-            )
+            raise RuntimeError("Self-Ask method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -210,7 +218,10 @@ class SelfAsk:
         self._answered_questions = {}
 
         # Create the initial thought analyzing the main question
-        content = self._generate_initial_analysis(input_text, context)
+        if self._use_sampling:
+            content = await self._sample_initial_analysis(input_text, context)
+        else:
+            content = self._generate_initial_analysis(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -225,6 +236,7 @@ class SelfAsk:
                 "reasoning_type": "self_ask",
                 "phase": "initial_analysis",
                 "pending_questions": len(self._question_stack),
+                "sampled": self._use_sampling,
             },
         )
 
@@ -241,6 +253,7 @@ class SelfAsk:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -276,9 +289,11 @@ class SelfAsk:
             >>> assert second.parent_id == first.id
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Self-Ask method must be initialized before continuation"
-            )
+            raise RuntimeError("Self-Ask method must be initialized before continuation")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -286,23 +301,35 @@ class SelfAsk:
         # Determine the next step based on the current phase
         phase = self._determine_next_phase(previous_thought, guidance)
 
-        # Generate content based on phase
+        # Generate content based on phase (use sampling if available)
         if phase == "generate_subquestion":
-            content, thought_type = self._generate_subquestion(
-                previous_thought, guidance, context
-            )
+            if self._use_sampling:
+                content, thought_type = await self._sample_subquestion(
+                    previous_thought, guidance, context
+                )
+            else:
+                content, thought_type = self._generate_subquestion(
+                    previous_thought, guidance, context
+                )
         elif phase == "answer_subquestion":
-            content, thought_type = self._answer_subquestion(
-                previous_thought, guidance, context
-            )
+            if self._use_sampling:
+                content, thought_type = await self._sample_answer(
+                    previous_thought, guidance, context
+                )
+            else:
+                content, thought_type = self._answer_subquestion(
+                    previous_thought, guidance, context
+                )
         elif phase == "synthesize":
-            content, thought_type = self._synthesize_answers(
-                previous_thought, context
-            )
+            if self._use_sampling:
+                content, thought_type = await self._sample_synthesis(previous_thought, context)
+            else:
+                content, thought_type = self._synthesize_answers(previous_thought, context)
         else:  # conclude
-            content, thought_type = self._generate_conclusion(
-                previous_thought, context
-            )
+            if self._use_sampling:
+                content, thought_type = await self._sample_conclusion(previous_thought, context)
+            else:
+                content, thought_type = self._generate_conclusion(previous_thought, context)
 
         # Calculate confidence based on how many questions have been answered
         confidence = self._calculate_confidence()
@@ -322,6 +349,7 @@ class SelfAsk:
                 "reasoning_type": "self_ask",
                 "pending_questions": len(self._question_stack),
                 "answered_count": len(self._answered_questions),
+                "sampled": self._use_sampling,
             },
         )
 
@@ -486,8 +514,8 @@ class SelfAsk:
         # In a real implementation, this would use an LLM to generate
         # the actual answer
         answer = (
-            f"Based on available knowledge and previous insights, here is "
-            f"the answer to this sub-question."
+            "Based on available knowledge and previous insights, here is "
+            "the answer to this sub-question."
         )
 
         # Store the Q&A pair
@@ -520,10 +548,7 @@ class SelfAsk:
         # In a real implementation, this would use an LLM to synthesize
         # all the Q&A pairs into a coherent understanding
 
-        qa_summary = "\n\n".join(
-            f"Q: {q}\nA: {a}"
-            for q, a in self._answered_questions.items()
-        )
+        qa_summary = "\n\n".join(f"Q: {q}\nA: {a}" for q, a in self._answered_questions.items())
 
         content = (
             f"Step {self._step_counter}: Synthesis of Sub-Answers\n\n"
@@ -581,3 +606,254 @@ class SelfAsk:
 
         # Ensure within valid range
         return max(0.3, min(0.95, confidence))
+
+    # ========================
+    # Sampling Methods
+    # ========================
+
+    async def _sample_initial_analysis(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate initial question analysis using LLM sampling.
+
+        Args:
+            input_text: The main question to analyze
+            context: Optional additional context
+
+        Returns:
+            The content for the initial thought
+        """
+        system_prompt = """You are a reasoning assistant using the Self-Ask methodology.
+Analyze the given question and identify what sub-questions need to be answered first.
+Think about what background knowledge or intermediate understanding is needed.
+Your analysis should set up the question decomposition process."""
+
+        user_prompt = f"""Main Question: {input_text}
+
+Analyze this question using Self-Ask methodology:
+1. What is the core question asking?
+2. What do I need to know to answer this comprehensively?
+3. What are the key concepts or dependencies involved?
+
+Begin your initial analysis to set up the questioning process."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_initial_analysis(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=600,
+        )
+
+    async def _sample_subquestion(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> tuple[str, ThoughtType]:
+        """Generate a sub-question using LLM sampling.
+
+        Args:
+            previous_thought: The previous thought
+            guidance: Optional guidance
+            context: Optional context
+
+        Returns:
+            Tuple of (content, thought_type)
+        """
+        main_question = previous_thought.metadata.get("main_question", "the main question")
+        answered_so_far = list(self._answered_questions.keys())
+
+        system_prompt = """You are a reasoning assistant using Self-Ask methodology.
+Generate a specific, targeted sub-question that will help answer the main question.
+The sub-question should be answerable and contribute to building understanding."""
+
+        user_prompt = f"""Main Question: {main_question}
+
+Previously answered sub-questions: {answered_so_far if answered_so_far else "None yet"}
+
+{f"Guidance: {guidance}" if guidance else ""}
+
+Generate a follow-up sub-question that will help answer the main question.
+The sub-question should:
+1. Be specific and answerable
+2. Not duplicate previous questions
+3. Build toward understanding the main question"""
+
+        def fallback() -> str:
+            content, _ = self._generate_subquestion(previous_thought, guidance, context)
+            return content
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=400,
+        )
+
+        # Extract the sub-question for the stack
+        sub_question = content.split("?")[0] + "?" if "?" in content else content[:100]
+        self._question_stack.append(sub_question)
+
+        formatted_content = f"Step {self._step_counter}: Sub-Question Generation\n\n{content}"
+        return formatted_content, ThoughtType.HYPOTHESIS
+
+    async def _sample_answer(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> tuple[str, ThoughtType]:
+        """Answer a sub-question using LLM sampling.
+
+        Args:
+            previous_thought: The previous thought
+            guidance: Optional guidance
+            context: Optional context
+
+        Returns:
+            Tuple of (content, thought_type)
+        """
+        # Get the current sub-question
+        if self._question_stack:
+            current_question = self._question_stack.pop()
+        else:
+            current_question = "the current sub-question"
+
+        main_question = previous_thought.metadata.get("main_question", "the main question")
+
+        system_prompt = """You are a reasoning assistant using Self-Ask methodology.
+Provide a clear, informative answer to the sub-question.
+Your answer should be accurate and contribute to answering the main question."""
+
+        user_prompt = f"""Main Question: {main_question}
+
+Sub-Question to Answer: {current_question}
+
+Previously answered questions and answers:
+{chr(10).join(f"Q: {q}{chr(10)}A: {a}" for q, a in self._answered_questions.items()) if self._answered_questions else "None yet"}
+
+Provide a clear, comprehensive answer to the sub-question.
+Explain how this answer helps toward the main question."""
+
+        def fallback() -> str:
+            # We need to re-add the question to the stack for the fallback method
+            self._question_stack.append(current_question)
+            content, _ = self._answer_subquestion(previous_thought, guidance, context)
+            return content
+
+        answer = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=600,
+        )
+
+        # Store the Q&A pair
+        self._answered_questions[current_question] = answer
+
+        formatted_content = (
+            f"Step {self._step_counter}: Sub-Question Answer\n\n"
+            f"Question: {current_question}\n\n"
+            f"Answer: {answer}"
+        )
+        return formatted_content, ThoughtType.VERIFICATION
+
+    async def _sample_synthesis(
+        self,
+        previous_thought: ThoughtNode,
+        context: dict[str, Any] | None,
+    ) -> tuple[str, ThoughtType]:
+        """Synthesize answers using LLM sampling.
+
+        Args:
+            previous_thought: The previous thought
+            context: Optional context
+
+        Returns:
+            Tuple of (content, thought_type)
+        """
+        main_question = previous_thought.metadata.get("main_question", "the main question")
+
+        system_prompt = """You are a reasoning assistant using Self-Ask methodology.
+Synthesize all the answered sub-questions into a coherent understanding.
+Show how the pieces fit together to address the main question."""
+
+        qa_pairs = "\n\n".join(f"Q: {q}\nA: {a}" for q, a in self._answered_questions.items())
+
+        user_prompt = f"""Main Question: {main_question}
+
+Answered Sub-Questions:
+{qa_pairs}
+
+Synthesize these answers into a coherent understanding.
+Show how these pieces connect and build toward answering the main question."""
+
+        def fallback() -> str:
+            content, _ = self._synthesize_answers(previous_thought, context)
+            return content
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=800,
+        )
+
+        formatted_content = f"Step {self._step_counter}: Synthesis of Sub-Answers\n\n{content}"
+        return formatted_content, ThoughtType.SYNTHESIS
+
+    async def _sample_conclusion(
+        self,
+        previous_thought: ThoughtNode,
+        context: dict[str, Any] | None,
+    ) -> tuple[str, ThoughtType]:
+        """Generate the final conclusion using LLM sampling.
+
+        Args:
+            previous_thought: The previous thought
+            context: Optional context
+
+        Returns:
+            Tuple of (content, thought_type)
+        """
+        main_question = previous_thought.metadata.get("main_question", "the main question")
+
+        system_prompt = """You are a reasoning assistant using Self-Ask methodology.
+Provide the final, comprehensive answer to the main question.
+Your answer should integrate all the insights from the sub-questions."""
+
+        qa_pairs = "\n\n".join(f"Q: {q}\nA: {a}" for q, a in self._answered_questions.items())
+
+        user_prompt = f"""Main Question: {main_question}
+
+All Sub-Questions and Answers:
+{qa_pairs}
+
+Provide the final, comprehensive answer to the main question.
+Integrate all insights from the self-questioning process.
+Be clear, complete, and well-organized."""
+
+        def fallback() -> str:
+            content, _ = self._generate_conclusion(previous_thought, context)
+            return content
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.5,
+            max_tokens=1000,
+        )
+
+        formatted_content = (
+            f"Step {self._step_counter}: Final Answer\n\n"
+            f"Main Question: {main_question}\n\n"
+            f"Final Answer: {content}"
+        )
+        return formatted_content, ThoughtType.CONCLUSION

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 OR_PRM_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.OR_PRM,
@@ -60,12 +59,9 @@ class OrPrm:
         # Assess both process and outcome
         process_score = self._score_process(solution)
         outcome_score = self._predict_outcome(solution)
-        
-        combined = (
-            process_score * (1 - self._outcome_weight) +
-            outcome_score * self._outcome_weight
-        )
-        
+
+        combined = process_score * (1 - self._outcome_weight) + outcome_score * self._outcome_weight
+
         verification = (
             "Outcome-Aware Verification:\n"
             f"  Process quality: {process_score:.2f}\n"
@@ -73,26 +69,26 @@ class OrPrm:
             f"  Outcome weight: {self._outcome_weight:.2f}\n"
             f"  Combined score: {combined:.2f}\n"
         )
-        
+
         return combined, verification
 
     def _score_process(self, solution: str) -> float:
         """Score the reasoning process."""
         score = 0.6
-        
+
         if len(solution) > 30:
             score += 0.1
         if any(word in solution.lower() for word in ["step", "first", "then", "finally"]):
             score += 0.1
         if "=" in solution:
             score += 0.1
-        
+
         return min(1.0, score)
 
     def _predict_outcome(self, solution: str) -> float:
         """Predict outcome quality from solution."""
         score = 0.7
-        
+
         # Outcome indicators
         if any(word in solution.lower() for word in ["answer", "result", "conclusion"]):
             score += 0.1
@@ -100,7 +96,7 @@ class OrPrm:
             score += 0.1
         if "therefore" in solution.lower() or "thus" in solution.lower():
             score += 0.05
-        
+
         return min(1.0, score)
 
     async def score_with_outcome(
@@ -118,7 +114,7 @@ class OrPrm:
         if outcome:
             outcome_quality = self._predict_outcome(outcome)
             outcome_bonus = (outcome_quality - 0.7) * 0.2
-        
+
         scores = []
         for i, step in enumerate(steps):
             process_score = self._score_process(step)
@@ -126,7 +122,7 @@ class OrPrm:
             step_outcome_weight = self._outcome_weight * (i + 1) / len(steps)
             adjusted = process_score + outcome_bonus * step_outcome_weight
             scores.append(min(1.0, max(0.0, adjusted)))
-        
+
         return scores
 
     async def score_steps(

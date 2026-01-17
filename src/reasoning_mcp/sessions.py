@@ -8,9 +8,12 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
-from reasoning_mcp.models.core import SessionStatus
 from reasoning_mcp.models.session import Session, SessionConfig
+
+if TYPE_CHECKING:
+    from reasoning_mcp.models.core import SessionStatus
 
 
 class SessionManager:
@@ -110,9 +113,7 @@ class SessionManager:
         """
         async with self._lock:
             if len(self._sessions) >= self._max_sessions:
-                raise RuntimeError(
-                    f"Maximum session limit reached ({self._max_sessions})"
-                )
+                raise RuntimeError(f"Maximum session limit reached ({self._max_sessions})")
 
             session = Session(config=config) if config else Session()
             self._sessions[session.id] = session

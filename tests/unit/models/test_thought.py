@@ -26,7 +26,6 @@ from pydantic import BaseModel, ValidationError
 from reasoning_mcp.models.core import MethodIdentifier, ThoughtType
 from reasoning_mcp.models.thought import ThoughtEdge, ThoughtGraph, ThoughtNode
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -710,7 +709,7 @@ class TestThoughtNodeSchema:
         # At least some fields should have descriptions
         # (This depends on Field(..., description=...) in the model)
         # We check that descriptions are possible
-        for field_name, field_schema in properties.items():
+        for _field_name, field_schema in properties.items():
             # If description exists, it should be a string
             if "description" in field_schema:
                 assert isinstance(field_schema["description"], str)
@@ -1431,11 +1430,7 @@ class TestThoughtGraphAddEdge:
 
         graph = graph.add_thought(thought_1).add_thought(thought_2)
 
-        edge = ThoughtEdge(
-            source_id=thought_1.id,
-            target_id=thought_2.id,
-            edge_type="reference"
-        )
+        edge = ThoughtEdge(source_id=thought_1.id, target_id=thought_2.id, edge_type="reference")
 
         graph = graph.add_edge(edge)
 
@@ -1686,9 +1681,13 @@ class TestThoughtGraphGetDescendants:
 
         grandparent = ThoughtNode(**{**minimal_thought_data, "depth": 0})
         parent_id = str(uuid.uuid4())
-        parent = ThoughtNode(**{**minimal_thought_data, "id": parent_id, "depth": 1, "parent_id": grandparent.id})
+        parent = ThoughtNode(
+            **{**minimal_thought_data, "id": parent_id, "depth": 1, "parent_id": grandparent.id}
+        )
         child_id = str(uuid.uuid4())
-        child = ThoughtNode(**{**minimal_thought_data, "id": child_id, "depth": 2, "parent_id": parent.id})
+        child = ThoughtNode(
+            **{**minimal_thought_data, "id": child_id, "depth": 2, "parent_id": parent.id}
+        )
 
         graph = graph.add_thought(grandparent).add_thought(parent).add_thought(child)
 
@@ -1748,8 +1747,7 @@ class TestThoughtGraphGetBranch:
         graph = ThoughtGraph()
 
         thoughts = [
-            ThoughtNode(**{**minimal_thought_data, "branch_id": "main_branch"})
-            for _ in range(5)
+            ThoughtNode(**{**minimal_thought_data, "branch_id": "main_branch"}) for _ in range(5)
         ]
 
         for thought in thoughts:
@@ -1794,8 +1792,12 @@ class TestThoughtGraphGetMainPath:
         graph = ThoughtGraph()
 
         node_1 = ThoughtNode(**{**minimal_thought_data, "depth": 0, "confidence": 0.8})
-        node_2 = ThoughtNode(**{**minimal_thought_data, "depth": 1, "parent_id": node_1.id, "confidence": 0.9})
-        node_3 = ThoughtNode(**{**minimal_thought_data, "depth": 2, "parent_id": node_2.id, "confidence": 0.85})
+        node_2 = ThoughtNode(
+            **{**minimal_thought_data, "depth": 1, "parent_id": node_1.id, "confidence": 0.9}
+        )
+        node_3 = ThoughtNode(
+            **{**minimal_thought_data, "depth": 2, "parent_id": node_2.id, "confidence": 0.85}
+        )
 
         graph = graph.add_thought(node_1).add_thought(node_2).add_thought(node_3)
 
@@ -1811,20 +1813,19 @@ class TestThoughtGraphGetMainPath:
 
         # Two branches with different confidence
         high_conf_child_id = str(uuid.uuid4())
-        high_conf_child = ThoughtNode(**{
-            **minimal_thought_data,
-            "id": high_conf_child_id,
-            "depth": 1,
-            "parent_id": root.id,
-            "confidence": 0.95
-        })
+        high_conf_child = ThoughtNode(
+            **{
+                **minimal_thought_data,
+                "id": high_conf_child_id,
+                "depth": 1,
+                "parent_id": root.id,
+                "confidence": 0.95,
+            }
+        )
 
-        low_conf_child = ThoughtNode(**{
-            **minimal_thought_data,
-            "depth": 1,
-            "parent_id": root.id,
-            "confidence": 0.5
-        })
+        low_conf_child = ThoughtNode(
+            **{**minimal_thought_data, "depth": 1, "parent_id": root.id, "confidence": 0.5}
+        )
 
         graph = graph.add_thought(root).add_thought(high_conf_child).add_thought(low_conf_child)
 

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 GEN_PRM_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.GEN_PRM,
@@ -80,13 +79,13 @@ class GenPrm:
             # Progressive scoring - later steps build on earlier
             base_score = 0.7
             progress_bonus = 0.05 * (i + 1)
-            
+
             # Content-based adjustments
             if "=" in step:
                 base_score += 0.1
             if any(word in step.lower() for word in ["therefore", "thus", "verify"]):
                 base_score += 0.05
-                
+
             scores.append(min(1.0, base_score + progress_bonus))
 
         return scores

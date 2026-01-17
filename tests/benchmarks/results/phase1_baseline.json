@@ -1,0 +1,231 @@
+{
+  "timestamp": "2026-01-08T10:11:33.339219",
+  "benchmark_stats": {
+    "total_queries": 100,
+    "by_domain": {
+      "mathematical": 15,
+      "code": 15,
+      "ethical": 10,
+      "creative": 10,
+      "analytical": 10,
+      "causal": 10,
+      "decision": 10,
+      "scientific": 10,
+      "legal": 0,
+      "medical": 0,
+      "philosophical": 0,
+      "general": 10
+    },
+    "by_difficulty": {
+      "easy": 16,
+      "medium": 61,
+      "hard": 23
+    },
+    "avg_complexity": 5.53
+  },
+  "overall_metrics": {
+    "domain_accuracy": 0.63,
+    "intent_accuracy": 0.41,
+    "method_hit_rate": 0.12,
+    "pipeline_accuracy": 0.26,
+    "complexity_mae": 1.6,
+    "complexity_rmse": 1.969771560359221,
+    "avg_latency_ms": 0.21558248001383618,
+    "p50_latency_ms": 0.19947900000261143,
+    "p95_latency_ms": 0.26922915712930257,
+    "p99_latency_ms": 0.4060634174675263,
+    "total_queries": 100,
+    "successful_routes": 100,
+    "failed_routes": 0
+  },
+  "domain_metrics": {
+    "mathematical": {
+      "count": 15,
+      "domain_accuracy": 0.7333333333333333,
+      "intent_accuracy": 0.8666666666666667,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.2988444020350774
+    },
+    "code": {
+      "count": 15,
+      "domain_accuracy": 0.8666666666666667,
+      "intent_accuracy": 0.4666666666666667,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.2004471985856071
+    },
+    "ethical": {
+      "count": 10,
+      "domain_accuracy": 0.9,
+      "intent_accuracy": 0.1,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.19986249972134829
+    },
+    "creative": {
+      "count": 10,
+      "domain_accuracy": 0.9,
+      "intent_accuracy": 0.4,
+      "method_hit_rate": 0.5,
+      "avg_latency_ms": 0.20207079651299864
+    },
+    "analytical": {
+      "count": 10,
+      "domain_accuracy": 0.7,
+      "intent_accuracy": 1.0,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.2145334001397714
+    },
+    "causal": {
+      "count": 10,
+      "domain_accuracy": 0.3,
+      "intent_accuracy": 0.1,
+      "method_hit_rate": 0.2,
+      "avg_latency_ms": 0.1834499998949468
+    },
+    "decision": {
+      "count": 10,
+      "domain_accuracy": 0.1,
+      "intent_accuracy": 0.0,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.2457874987157993
+    },
+    "scientific": {
+      "count": 10,
+      "domain_accuracy": 0.2,
+      "intent_accuracy": 0.5,
+      "method_hit_rate": 0.5,
+      "avg_latency_ms": 0.1658290988416411
+    },
+    "general": {
+      "count": 10,
+      "domain_accuracy": 0.8,
+      "intent_accuracy": 0.0,
+      "method_hit_rate": 0.0,
+      "avg_latency_ms": 0.19535410538082942
+    }
+  },
+  "per_class_metrics": {
+    "domain_precision": {
+      "mathematical": 0.9166666666666666,
+      "code": 0.8666666666666667,
+      "ethical": 0.5,
+      "creative": 0.9,
+      "analytical": 1.0,
+      "causal": 0.75,
+      "decision": 0.5,
+      "scientific": 1.0,
+      "legal": 0.0,
+      "medical": 0.0,
+      "philosophical": 0.0,
+      "general": 0.27586206896551724
+    },
+    "domain_recall": {
+      "mathematical": 0.7333333333333333,
+      "code": 0.8666666666666667,
+      "ethical": 0.9,
+      "creative": 0.9,
+      "analytical": 0.7,
+      "causal": 0.3,
+      "decision": 0.1,
+      "scientific": 0.2,
+      "legal": 0.0,
+      "medical": 0.0,
+      "philosophical": 0.0,
+      "general": 0.8
+    },
+    "domain_f1": {
+      "mathematical": 0.8148148148148148,
+      "code": 0.8666666666666667,
+      "ethical": 0.6428571428571429,
+      "creative": 0.9,
+      "analytical": 0.8235294117647058,
+      "causal": 0.4285714285714285,
+      "decision": 0.16666666666666669,
+      "scientific": 0.33333333333333337,
+      "legal": 0.0,
+      "medical": 0.0,
+      "philosophical": 0.0,
+      "general": 0.4102564102564103
+    },
+    "intent_precision": {
+      "solve": 0.24615384615384617,
+      "analyze": 0.7777777777777778,
+      "evaluate": 0.0,
+      "generate": 0.7142857142857143,
+      "explain": 0.6,
+      "verify": 0.0,
+      "optimize": 0.5,
+      "debug": 1.0,
+      "compare": 1.0,
+      "synthesize": 0.0
+    },
+    "intent_recall": {
+      "solve": 0.9411764705882353,
+      "analyze": 0.3181818181818182,
+      "evaluate": 0.0,
+      "generate": 0.35714285714285715,
+      "explain": 0.3,
+      "verify": 0.0,
+      "optimize": 0.3333333333333333,
+      "debug": 0.6666666666666666,
+      "compare": 1.0,
+      "synthesize": 0.0
+    },
+    "intent_f1": {
+      "solve": 0.3902439024390244,
+      "analyze": 0.45161290322580644,
+      "evaluate": 0.0,
+      "generate": 0.4761904761904762,
+      "explain": 0.4,
+      "verify": 0.0,
+      "optimize": 0.4,
+      "debug": 0.8,
+      "compare": 1.0,
+      "synthesize": 0.0
+    }
+  },
+  "baselines": [
+    {
+      "name": "random",
+      "description": "Random method selection from available methods",
+      "method_hit_rate": 0.1,
+      "domain_accuracy": 0.08333333333333333,
+      "intent_accuracy": 0.1
+    },
+    {
+      "name": "popularity",
+      "description": "Always selects most popular method (chain_of_thought)",
+      "method_hit_rate": 0.46,
+      "domain_accuracy": 0.0,
+      "intent_accuracy": 0.0
+    }
+  ],
+  "go_nogo": {
+    "avg_accuracy": 0.52,
+    "domain_accuracy": 0.63,
+    "intent_accuracy": 0.41,
+    "method_hit_rate": 0.12,
+    "ml_tier_justified": true,
+    "reason": "ML tier justified: accuracy 52.0% < 80%",
+    "recommendation": "Proceed to Phase 3 (ML-Based Routing)"
+  },
+  "tier_comparison": {
+    "fast": {
+      "domain_accuracy": 0.8,
+      "intent_accuracy": 0.75,
+      "avg_latency_ms": 0.23628345152246766,
+      "successful_routes": 20
+    },
+    "standard": {
+      "domain_accuracy": 0.8,
+      "intent_accuracy": 0.75,
+      "avg_latency_ms": 0.218943598883925,
+      "successful_routes": 20
+    },
+    "complex": {
+      "domain_accuracy": 0.8,
+      "intent_accuracy": 0.75,
+      "avg_latency_ms": 0.21965199848636985,
+      "successful_routes": 20
+    }
+  }
+}

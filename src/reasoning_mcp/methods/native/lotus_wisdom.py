@@ -7,11 +7,12 @@ Emotional, Ethical, Practical, and Intuitive perspectives.
 
 from __future__ import annotations
 
-from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,7 +20,10 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.thought import ThoughtGraph, ThoughtNode
 
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models.session import Session
 
 
@@ -27,16 +31,21 @@ if TYPE_CHECKING:
 LOTUS_WISDOM_METADATA = MethodMetadata(
     identifier=MethodIdentifier.LOTUS_WISDOM,
     name="Lotus Wisdom",
-    description="5-domain holistic analysis examining technical, emotional, ethical, practical, and intuitive aspects",
+    description=(
+        "5-domain holistic analysis examining technical, emotional, ethical, "
+        "practical, and intuitive aspects"
+    ),
     category=MethodCategory.HOLISTIC,
-    tags=frozenset({
-        "holistic",
-        "wisdom",
-        "multi-domain",
-        "balanced",
-        "integrative",
-        "comprehensive",
-    }),
+    tags=frozenset(
+        {
+            "holistic",
+            "wisdom",
+            "multi-domain",
+            "balanced",
+            "integrative",
+            "comprehensive",
+        }
+    ),
     complexity=7,  # High complexity due to multi-domain analysis
     supports_branching=True,  # Each domain is a branch
     supports_revision=True,  # Can revise domain analyses
@@ -61,7 +70,7 @@ LOTUS_WISDOM_METADATA = MethodMetadata(
 )
 
 
-class LotusWisdomMethod:
+class LotusWisdomMethod(ReasoningMethodBase):
     """Lotus Wisdom reasoning method implementation.
 
     This method examines problems through 5 wisdom domains, like the petals
@@ -165,9 +174,9 @@ class LotusWisdomMethod:
         """Initialize the Lotus Wisdom method."""
         self._initialized = False
         self._step_counter = 0
-        self._domain_balance: dict[str, int] = {
-            domain: 0 for domain in self.DOMAINS
-        }
+        self._domain_balance: dict[str, int] = {domain: 0 for domain in self.DOMAINS}
+        self._use_sampling: bool = True
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -221,10 +230,11 @@ class LotusWisdomMethod:
         self._step_counter = 0
         self._domain_balance = {domain: 0 for domain in self.DOMAINS}
 
-    async def execute(
+    async def execute(  # type: ignore[override]
         self,
         session: Session,
         problem: str,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtGraph:
         """Execute the Lotus Wisdom method.
 
@@ -236,6 +246,7 @@ class LotusWisdomMethod:
         Args:
             session: The current reasoning session
             problem: The problem or question to analyze
+            execution_context: Optional execution context for LLM sampling
 
         Returns:
             A ThoughtGraph containing the complete lotus structure
@@ -255,9 +266,10 @@ class LotusWisdomMethod:
             >>> assert graph.root_id is not None
         """
         if not self._initialized:
-            raise RuntimeError(
-                "LotusWisdomMethod must be initialized before execution"
-            )
+            raise RuntimeError("LotusWisdomMethod must be initialized before execution")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         # Reset state for new execution
         self._step_counter = 0
@@ -268,7 +280,7 @@ class LotusWisdomMethod:
 
         # Step 1: Create the center (problem essence)
         self._step_counter += 1
-        center = self._create_center(problem)
+        center = await self._create_center(problem)
         graph.add_thought(center)
         session.add_thought(center)
         session.current_method = MethodIdentifier.LOTUS_WISDOM
@@ -277,7 +289,7 @@ class LotusWisdomMethod:
         domain_thoughts = []
         for domain_key in self.DOMAINS:
             self._step_counter += 1
-            domain_thought = self._create_domain_petal(
+            domain_thought = await self._create_domain_petal(
                 problem=problem,
                 domain_key=domain_key,
                 center_id=center.id,
@@ -289,7 +301,7 @@ class LotusWisdomMethod:
 
         # Step 7: Create the synthesis (lotus bloom)
         self._step_counter += 1
-        synthesis = self._create_synthesis(
+        synthesis = await self._create_synthesis(
             problem=problem,
             center=center,
             domain_thoughts=domain_thoughts,
@@ -299,7 +311,7 @@ class LotusWisdomMethod:
 
         return graph
 
-    async def continue_reasoning(
+    async def continue_reasoning(  # type: ignore[override]
         self,
         session: Session,
         graph: ThoughtGraph,
@@ -334,9 +346,7 @@ class LotusWisdomMethod:
             >>> assert updated.node_count > graph.node_count
         """
         if not self._initialized:
-            raise RuntimeError(
-                "LotusWisdomMethod must be initialized before continuation"
-            )
+            raise RuntimeError("LotusWisdomMethod must be initialized before continuation")
 
         # Determine which domain to deepen or if we need new synthesis
         domain_to_deepen = self._determine_continuation_focus(feedback, graph)
@@ -391,7 +401,7 @@ class LotusWisdomMethod:
         """
         return self._initialized
 
-    def _create_center(self, problem: str) -> ThoughtNode:
+    async def _create_center(self, problem: str) -> ThoughtNode:
         """Create the center thought representing problem essence.
 
         Args:
@@ -400,7 +410,17 @@ class LotusWisdomMethod:
         Returns:
             ThoughtNode representing the center of the lotus
         """
-        content = self._generate_center_content(problem)
+        # Use sampling if available
+        use_sampling = (
+            self._execution_context is not None
+            and self._execution_context.can_sample
+            and self._use_sampling
+        )
+
+        if use_sampling:
+            content = await self._sample_center_content(problem)
+        else:
+            content = self._generate_center_content(problem)
 
         return ThoughtNode(
             id=str(uuid4()),
@@ -419,7 +439,7 @@ class LotusWisdomMethod:
             },
         )
 
-    def _create_domain_petal(
+    async def _create_domain_petal(
         self,
         problem: str,
         domain_key: str,
@@ -436,7 +456,18 @@ class LotusWisdomMethod:
             ThoughtNode representing one domain petal
         """
         domain_info = self.DOMAINS[domain_key]
-        content = self._generate_domain_content(problem, domain_key, domain_info)
+
+        # Use sampling if available
+        use_sampling = (
+            self._execution_context is not None
+            and self._execution_context.can_sample
+            and self._use_sampling
+        )
+
+        if use_sampling:
+            content = await self._sample_domain_content(problem, domain_key, domain_info)
+        else:
+            content = self._generate_domain_content(problem, domain_key, domain_info)
 
         return ThoughtNode(
             id=str(uuid4()),
@@ -457,7 +488,7 @@ class LotusWisdomMethod:
             },
         )
 
-    def _create_synthesis(
+    async def _create_synthesis(
         self,
         problem: str,
         center: ThoughtNode,
@@ -473,9 +504,17 @@ class LotusWisdomMethod:
         Returns:
             ThoughtNode representing the synthesis
         """
-        content = self._generate_synthesis_content(
-            problem, center, domain_thoughts
+        # Use sampling if available
+        use_sampling = (
+            self._execution_context is not None
+            and self._execution_context.can_sample
+            and self._use_sampling
         )
+
+        if use_sampling:
+            content = await self._sample_synthesis_content(problem, center, domain_thoughts)
+        else:
+            content = self._generate_synthesis_content(problem, center, domain_thoughts)
 
         # Synthesis is a child of the center, synthesizing all branches
         return ThoughtNode(
@@ -524,9 +563,7 @@ class LotusWisdomMethod:
 
         parent_id = original_petal.id if original_petal else graph.root_id
 
-        content = self._generate_deeper_domain_content(
-            domain_key, domain_info, feedback
-        )
+        content = self._generate_deeper_domain_content(domain_key, domain_info, feedback)
 
         return ThoughtNode(
             id=str(uuid4()),
@@ -572,9 +609,7 @@ class LotusWisdomMethod:
         parent_id = previous_synthesis.id if previous_synthesis else graph.root_id
         depth = (previous_synthesis.depth + 1) if previous_synthesis else 3
 
-        content = self._generate_refined_synthesis_content(
-            new_insight, feedback
-        )
+        content = self._generate_refined_synthesis_content(new_insight, feedback)
 
         return ThoughtNode(
             id=str(uuid4()),
@@ -703,7 +738,7 @@ class LotusWisdomMethod:
         )
 
     def _generate_domain_content(
-        self, problem: str, domain_key: str, domain_info: dict
+        self, problem: str, domain_key: str, domain_info: dict[str, Any]
     ) -> str:
         """Generate content for a domain petal thought."""
         focus_items = "\n".join(f"- {item}" for item in domain_info["focus"])
@@ -713,9 +748,10 @@ class LotusWisdomMethod:
             f"Examining this problem through the {domain_info['name']} lens:\n"
             f"{domain_info['description']}\n\n"
             f"Key considerations in this domain:\n{focus_items}\n\n"
-            f"This domain reveals aspects of the problem that require {domain_info['name'].lower()} "
-            f"wisdom and understanding. It provides one essential perspective that must be "
-            f"integrated with the other domains for complete wisdom."
+            f"This domain reveals aspects of the problem that require "
+            f"{domain_info['name'].lower()} wisdom and understanding. It provides one "
+            f"essential perspective that must be integrated with the other domains for "
+            f"complete wisdom."
         )
 
     def _generate_synthesis_content(
@@ -725,9 +761,8 @@ class LotusWisdomMethod:
         domain_thoughts: list[ThoughtNode],
     ) -> str:
         """Generate content for the synthesis thought."""
-        domain_names = [
-            self.DOMAINS[dt.metadata["domain"]]["name"]
-            for dt in domain_thoughts
+        domain_names: list[str] = [
+            str(self.DOMAINS[dt.metadata["domain"]]["name"]) for dt in domain_thoughts
         ]
 
         return (
@@ -756,16 +791,18 @@ class LotusWisdomMethod:
         )
 
     def _generate_deeper_domain_content(
-        self, domain_key: str, domain_info: dict, feedback: str | None
+        self, domain_key: str, domain_info: dict[str, Any], feedback: str | None
     ) -> str:
         """Generate content for deeper domain analysis."""
         feedback_text = f"\n\nFocusing on: {feedback}" if feedback else ""
 
         return (
-            f"Step {self._step_counter}: Deepening {domain_info['name'].upper()} Analysis\n\n"
-            f"Exploring the {domain_info['name']} domain with greater depth and nuance:{feedback_text}\n\n"
-            f"This deeper examination reveals additional layers within the {domain_info['name'].lower()} "
-            f"perspective:\n\n"
+            f"Step {self._step_counter}: Deepening {domain_info['name'].upper()} "
+            f"Analysis\n\n"
+            f"Exploring the {domain_info['name']} domain with greater depth and "
+            f"nuance:{feedback_text}\n\n"
+            f"This deeper examination reveals additional layers within the "
+            f"{domain_info['name'].lower()} perspective:\n\n"
             f"- Subtle aspects not visible in initial analysis\n"
             f"- Edge cases and boundary conditions\n"
             f"- Interconnections with other domains\n"
@@ -778,9 +815,7 @@ class LotusWisdomMethod:
         self, new_insight: ThoughtNode, feedback: str | None
     ) -> str:
         """Generate content for refined synthesis."""
-        domain_name = self.DOMAINS[
-            new_insight.metadata.get("domain", "TECHNICAL")
-        ]["name"]
+        domain_name = self.DOMAINS[new_insight.metadata.get("domain", "TECHNICAL")]["name"]
 
         return (
             f"Step {self._step_counter}: REFINED SYNTHESIS\n\n"
@@ -796,9 +831,7 @@ class LotusWisdomMethod:
             f"integration of multi-domain wisdom."
         )
 
-    def _generate_evaluation_content(
-        self, graph: ThoughtGraph, feedback: str | None
-    ) -> str:
+    def _generate_evaluation_content(self, graph: ThoughtGraph, feedback: str | None) -> str:
         """Generate content for evaluation thought."""
         balance = self._check_domain_balance()
         balanced = all(count > 0 for count in balance.values())
@@ -821,4 +854,158 @@ class LotusWisdomMethod:
             f"The lotus wisdom approach demonstrates that comprehensive understanding "
             f"requires technical rigor, emotional intelligence, ethical grounding, "
             f"practical wisdom, and intuitive sensing working in harmony."
+        )
+
+    # Sampling methods using LLM
+
+    async def _sample_center_content(self, problem: str) -> str:
+        """Generate center content using LLM sampling.
+
+        Args:
+            problem: The problem to analyze
+
+        Returns:
+            The content for the center thought
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for LLM sampling")
+
+        system_prompt = """You are a wisdom facilitator using the Lotus Wisdom method.
+Analyze the problem to understand its essential nature at the center of inquiry.
+Your response should:
+1. Identify the fundamental question being asked
+2. Recognize key elements and relationships
+3. Explain why this problem is significant
+4. Set the stage for multi-domain analysis (Technical, Emotional, Ethical, Practical, Intuitive)"""
+
+        user_prompt = f"""Problem: {problem}
+
+Create the CENTER of the lotus - understanding the essence:
+1. What is the fundamental question or challenge?
+2. What are the key elements and relationships?
+3. Why is this question significant or important?
+4. What wisdom is needed here?
+
+Begin your analysis of the problem's essential nature."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_center_content(problem),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=600,
+        )
+
+    async def _sample_domain_content(
+        self, problem: str, domain_key: str, domain_info: dict[str, Any]
+    ) -> str:
+        """Generate domain petal content using LLM sampling.
+
+        Args:
+            problem: The problem being analyzed
+            domain_key: Which domain (TECHNICAL, EMOTIONAL, etc.)
+            domain_info: Domain metadata
+
+        Returns:
+            The content for the domain petal thought
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for LLM sampling")
+
+        focus_items = "\n".join(f"- {item}" for item in domain_info["focus"])
+
+        system_prompt = f"""You are a wisdom facilitator using the Lotus Wisdom method.
+Analyze the problem through the {domain_info["name"]} domain perspective.
+Focus on: {domain_info["description"]}
+
+Key areas to address:
+{focus_items}"""
+
+        user_prompt = f"""Problem: {problem}
+
+Examine this problem through the {domain_info["name"].upper()} lens:
+
+Provide deep analysis considering:
+{focus_items}
+
+What insights does the {domain_info["name"]} perspective reveal about this problem?
+How does this domain's wisdom contribute to understanding the whole?"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_domain_content(
+                problem, domain_key, domain_info
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=700,
+        )
+
+    async def _sample_synthesis_content(
+        self,
+        problem: str,
+        center: ThoughtNode,
+        domain_thoughts: list[ThoughtNode],
+    ) -> str:
+        """Generate synthesis content using LLM sampling.
+
+        Args:
+            problem: The problem being analyzed
+            center: The center thought
+            domain_thoughts: List of all domain petal thoughts
+
+        Returns:
+            The content for the synthesis thought
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for LLM sampling")
+
+        # Extract domain insights
+        domain_insights = []
+        for dt in domain_thoughts:
+            domain_name = self.DOMAINS[dt.metadata["domain"]]["name"]
+            domain_insights.append(f"**{domain_name}**: {dt.content[:200]}...")
+
+        insights_text = "\n\n".join(domain_insights)
+
+        system_prompt = """You are a wisdom facilitator using the Lotus Wisdom method.
+Synthesize insights from all five wisdom domains into integrated understanding.
+Your synthesis should:
+1. Weave together insights from all domains
+2. Identify patterns and connections across domains
+3. Acknowledge tensions or trade-offs between perspectives
+4. Provide holistic recommendations that honor all dimensions
+5. Create wisdom that transcends individual perspectives"""
+
+        user_prompt = f"""Problem: {problem}
+
+The five wisdom domains have been explored:
+{insights_text}
+
+Create a SYNTHESIS - the lotus bloom:
+1. Integrate insights from all domains into coherent understanding
+2. Identify key patterns and connections
+3. Address tensions between different perspectives
+4. Provide holistic wisdom and recommendations
+5. Show how multi-domain analysis creates richer understanding
+
+What integrated wisdom emerges from holding all these perspectives together?"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_synthesis_content(
+                problem, center, domain_thoughts
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
         )

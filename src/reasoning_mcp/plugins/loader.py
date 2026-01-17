@@ -9,19 +9,71 @@ from __future__ import annotations
 import importlib
 import importlib.util
 import logging
+import re
 import tomllib
-from pathlib import Path
+from typing import TYPE_CHECKING
 
-from reasoning_mcp.config import Settings
 from reasoning_mcp.plugins.interface import (
     Plugin,
     PluginContext,
     PluginError,
     PluginMetadata,
 )
-from reasoning_mcp.registry import MethodRegistry
+
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from reasoning_mcp.config import Settings
+    from reasoning_mcp.registry import MethodRegistry
 
 logger = logging.getLogger(__name__)
+
+
+def _is_path_within_directory(path: "Path", directory: "Path") -> bool:
+    """Check if a path is safely within a directory (no traversal attacks).
+
+    Args:
+        path: Path to check
+        directory: Directory that should contain the path
+
+    Returns:
+        True if path is within directory, False otherwise
+    """
+    try:
+        # Resolve to absolute paths to handle symlinks and normalize
+        resolved_path = path.resolve()
+        resolved_dir = directory.resolve()
+        # Check if the resolved path starts with the resolved directory
+        return str(resolved_path).startswith(str(resolved_dir) + "/") or resolved_path == resolved_dir
+    except (OSError, ValueError):
+        return False
+
+
+def _validate_entry_point(entry_point: str, plugin_name: str) -> None:
+    """Validate that an entry point is safe and well-formed.
+
+    Args:
+        entry_point: The entry point string (e.g., "my_plugin.plugin.MyPlugin")
+        plugin_name: Name of the plugin (for error messages)
+
+    Raises:
+        PluginError: If entry point is invalid or potentially unsafe
+    """
+    if not entry_point:
+        raise PluginError(f"Plugin '{plugin_name}' has no entry_point specified")
+
+    # Check for dangerous patterns
+    if ".." in entry_point:
+        raise PluginError(f"Plugin '{plugin_name}' has invalid entry_point (contains '..')")
+
+    # Validate format: should be valid Python module.class format
+    # Pattern: module.submodule.ClassName
+    pattern = r"^[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)*$"
+    if not re.match(pattern, entry_point):
+        raise PluginError(
+            f"Plugin '{plugin_name}' has invalid entry_point format: {entry_point}. "
+            "Expected format: module.submodule.ClassName"
+        )
 
 
 class PluginLoader:
@@ -95,6 +147,13 @@ class PluginLoader:
             # Scan for plugin.toml files (standalone plugins)
             for plugin_file in plugin_dir.rglob("plugin.toml"):
                 try:
+                    # Security: Verify file is within the allowed plugin directory
+                    if not _is_path_within_directory(plugin_file, plugin_dir):
+                        logger.warning(
+                            f"Skipping plugin file outside allowed directory: {plugin_file}"
+                        )
+                        continue
+
                     metadata = self._load_metadata_from_toml(plugin_file)
                     discovered.append(metadata)
                     self._plugin_metadata[metadata.name] = metadata
@@ -105,11 +164,21 @@ class PluginLoader:
             # Scan for pyproject.toml files (package-based plugins)
             for pyproject_file in plugin_dir.rglob("pyproject.toml"):
                 try:
-                    metadata = self._load_metadata_from_pyproject(pyproject_file)
-                    if metadata:
-                        discovered.append(metadata)
-                        self._plugin_metadata[metadata.name] = metadata
-                        logger.info(f"Discovered plugin: {metadata.name} v{metadata.version}")
+                    # Security: Verify file is within the allowed plugin directory
+                    if not _is_path_within_directory(pyproject_file, plugin_dir):
+                        logger.warning(
+                            f"Skipping pyproject file outside allowed directory: {pyproject_file}"
+                        )
+                        continue
+
+                    pyproject_metadata = self._load_metadata_from_pyproject(pyproject_file)
+                    if pyproject_metadata:
+                        discovered.append(pyproject_metadata)
+                        self._plugin_metadata[pyproject_metadata.name] = pyproject_metadata
+                        logger.info(
+                            f"Discovered plugin: {pyproject_metadata.name} "
+                            f"v{pyproject_metadata.version}"
+                        )
                 except Exception as e:
                     logger.warning(f"Failed to load plugin metadata from {pyproject_file}: {e}")
 
@@ -383,7 +452,9 @@ class PluginLoader:
         return PluginMetadata(
             name=plugin_data["name"],
             version=plugin_data.get("version", project_data.get("version", "0.0.0")),
-            author=plugin_data.get("author", ", ".join(project_data.get("authors", [{"name": "Unknown"}])[0].values())),
+            author=plugin_data.get(
+                "author", ", ".join(project_data.get("authors", [{"name": "Unknown"}])[0].values())
+            ),
             description=plugin_data.get("description", project_data.get("description", "")),
             dependencies=plugin_data.get("dependencies", []),
             entry_point=plugin_data.get("entry_point", ""),
@@ -426,8 +497,8 @@ class PluginLoader:
         Raises:
             PluginError: If import or instantiation fails
         """
-        if not metadata.entry_point:
-            raise PluginError(f"Plugin '{metadata.name}' has no entry_point specified")
+        # Security: Validate entry point format before importing
+        _validate_entry_point(metadata.entry_point, metadata.name)
 
         try:
             # Parse entry point (e.g., "my_plugin.plugin.MyPlugin")
@@ -444,9 +515,7 @@ class PluginLoader:
 
             # Validate protocol compliance
             if not isinstance(plugin, Plugin):
-                raise PluginError(
-                    f"Plugin class '{class_name}' does not implement Plugin protocol"
-                )
+                raise PluginError(f"Plugin class '{class_name}' does not implement Plugin protocol")
 
             return plugin
 

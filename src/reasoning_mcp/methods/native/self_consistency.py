@@ -13,10 +13,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
 
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session, ThoughtNode
 
 
@@ -26,14 +31,16 @@ SELF_CONSISTENCY_METADATA = MethodMetadata(
     name="Self-Consistency",
     description="Generate multiple independent reasoning paths and select the most consistent answer through majority voting",
     category=MethodCategory.CORE,
-    tags=frozenset({
-        "voting",
-        "consensus",
-        "parallel",
-        "reliability",
-        "aggregation",
-        "diverse-reasoning",
-    }),
+    tags=frozenset(
+        {
+            "voting",
+            "consensus",
+            "parallel",
+            "reliability",
+            "aggregation",
+            "diverse-reasoning",
+        }
+    ),
     complexity=4,
     supports_branching=True,
     supports_revision=False,
@@ -58,7 +65,7 @@ SELF_CONSISTENCY_METADATA = MethodMetadata(
 )
 
 
-class SelfConsistency:
+class SelfConsistency(ReasoningMethodBase):
     """Self-Consistency reasoning method.
 
     This method generates multiple independent reasoning paths for the same problem,
@@ -99,6 +106,8 @@ class SelfConsistency:
 
         self._num_paths = num_paths
         self._min_agreement = min_agreement
+        self._use_sampling = False
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -130,6 +139,7 @@ class SelfConsistency:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Self-Consistency reasoning method.
 
@@ -151,6 +161,10 @@ class SelfConsistency:
         """
         from reasoning_mcp.models.thought import ThoughtNode
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # Extract configuration from context if provided
         num_paths = (context or {}).get("num_paths", self._num_paths)
         if not isinstance(num_paths, int) or num_paths < 2:
@@ -171,6 +185,7 @@ class SelfConsistency:
                 "problem": input_text,
                 "num_paths": num_paths,
                 "min_agreement": self._min_agreement,
+                "sampled": self._use_sampling,
             },
         )
         session.add_thought(initial_thought)
@@ -178,55 +193,73 @@ class SelfConsistency:
         # Step 2: Generate N independent reasoning paths as branches
         reasoning_paths: list[ThoughtNode] = []
         for i in range(num_paths):
-            branch_id = f"path_{i+1}_{uuid4().hex[:8]}"
+            branch_id = f"path_{i + 1}_{uuid4().hex[:8]}"
 
             # Create branch thought for this reasoning path
+            if self._use_sampling:
+                reasoning_step = await self._sample_reasoning_step(input_text, i + 1, num_paths)
+            else:
+                reasoning_step = self._generate_reasoning_step(input_text, i + 1)
+
             branch_thought = ThoughtNode(
                 id=str(uuid4()),
                 type=ThoughtType.BRANCH,
                 method_id=MethodIdentifier.SELF_CONSISTENCY,
                 parent_id=initial_thought.id,
                 branch_id=branch_id,
-                content=f"Reasoning Path {i+1}/{num_paths}:\n\n"
+                content=f"Reasoning Path {i + 1}/{num_paths}:\n\n"
                 f"Let me think through this problem independently...\n\n"
-                f"{self._generate_reasoning_step(input_text, i+1)}",
+                f"{reasoning_step}",
                 confidence=0.7,
                 step_number=2 + i * 3,
                 depth=1,
                 metadata={
                     "path_number": i + 1,
                     "branch_id": branch_id,
+                    "sampled": self._use_sampling,
                 },
             )
             session.add_thought(branch_thought)
 
             # Generate intermediate reasoning for this path
+            if self._use_sampling:
+                intermediate_content = await self._sample_intermediate_reasoning(input_text, i + 1)
+            else:
+                intermediate_content = self._generate_intermediate_reasoning(input_text, i + 1)
+
             intermediate_thought = ThoughtNode(
                 id=str(uuid4()),
                 type=ThoughtType.CONTINUATION,
                 method_id=MethodIdentifier.SELF_CONSISTENCY,
                 parent_id=branch_thought.id,
                 branch_id=branch_id,
-                content=self._generate_intermediate_reasoning(input_text, i+1),
+                content=intermediate_content,
                 confidence=0.75,
                 step_number=3 + i * 3,
                 depth=2,
                 metadata={
                     "path_number": i + 1,
                     "reasoning_stage": "intermediate",
+                    "sampled": self._use_sampling,
                 },
             )
             session.add_thought(intermediate_thought)
 
             # Generate conclusion for this path
-            conclusion = self._generate_path_conclusion(input_text, i+1)
+            if self._use_sampling:
+                conclusion = await self._sample_path_conclusion(
+                    input_text, i + 1, reasoning_step, intermediate_content
+                )
+            else:
+                conclusion = self._generate_path_conclusion(input_text, i + 1)
+
             conclusion_thought = ThoughtNode(
                 id=str(uuid4()),
                 type=ThoughtType.CONCLUSION,
                 method_id=MethodIdentifier.SELF_CONSISTENCY,
                 parent_id=intermediate_thought.id,
                 branch_id=branch_id,
-                content=f"Path {i+1} Conclusion:\n{conclusion}",
+                content=f"Path {i + 1} Conclusion:\n{conclusion}",
                 confidence=0.8,
                 step_number=4 + i * 3,
                 depth=3,
@@ -234,15 +267,14 @@ class SelfConsistency:
                     "path_number": i + 1,
                     "conclusion": conclusion,
                     "is_path_conclusion": True,
+                    "sampled": self._use_sampling,
                 },
             )
             session.add_thought(conclusion_thought)
             reasoning_paths.append(conclusion_thought)
 
         # Step 3: Collect all conclusions and perform voting
-        conclusions = [
-            path.metadata.get("conclusion", "") for path in reasoning_paths
-        ]
+        conclusions = [path.metadata.get("conclusion", "") for path in reasoning_paths]
 
         # Step 4: Perform majority voting
         voting_results = self._perform_voting(conclusions)
@@ -282,6 +314,7 @@ class SelfConsistency:
                 "num_paths": num_paths,
                 "all_conclusions": conclusions,
                 "is_final_answer": True,
+                "sampled": self._use_sampling,
             },
         )
         session.add_thought(synthesis_thought)
@@ -295,6 +328,7 @@ class SelfConsistency:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -312,6 +346,10 @@ class SelfConsistency:
         """
         from reasoning_mcp.models.thought import ThoughtNode
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # If guidance suggests adding more paths, we could implement that here
         # For now, create a verification thought
         verification_content = (
@@ -325,9 +363,13 @@ class SelfConsistency:
             verification_content += f"Additional guidance: {guidance}\n\n"
 
         verification_content += (
-            "The result shows " +
-            ("high" if previous_thought.metadata.get("agreement_rate", 0) > self._min_agreement else "moderate") +
-            " consistency across reasoning paths."
+            "The result shows "
+            + (
+                "high"
+                if previous_thought.metadata.get("agreement_rate", 0) > self._min_agreement
+                else "moderate"
+            )
+            + " consistency across reasoning paths."
         )
 
         verification_thought = ThoughtNode(
@@ -342,6 +384,7 @@ class SelfConsistency:
             metadata={
                 "verified_answer": previous_thought.metadata.get("majority_answer"),
                 "verified_agreement": previous_thought.metadata.get("agreement_rate"),
+                "sampled": self._use_sampling,
             },
         )
         session.add_thought(verification_thought)
@@ -388,10 +431,10 @@ class SelfConsistency:
             Intermediate reasoning content
         """
         return (
-            f"Working through the logical steps...\n\n"
-            f"Based on the problem statement, I need to consider several factors.\n"
-            f"Let me examine each possibility and evaluate which makes the most sense.\n\n"
-            f"After careful analysis, I'm converging on a solution."
+            "Working through the logical steps...\n\n"
+            "Based on the problem statement, I need to consider several factors.\n"
+            "Let me examine each possibility and evaluate which makes the most sense.\n\n"
+            "After careful analysis, I'm converging on a solution."
         )
 
     def _generate_path_conclusion(self, problem: str, path_num: int) -> str:
@@ -446,6 +489,7 @@ class SelfConsistency:
         # Consistency score: higher when votes are concentrated
         # Uses Shannon entropy normalized to [0, 1]
         import math
+
         entropy = 0.0
         for count in vote_counts.values():
             if count > 0:
@@ -457,7 +501,9 @@ class SelfConsistency:
 
         return {
             "majority_answer": majority_answer,
-            "vote_counts": {k: v for k, v in sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)},
+            "vote_counts": {
+                k: v for k, v in sorted(vote_counts.items(), key=lambda x: x[1], reverse=True)
+            },
             "agreement_rate": agreement_rate,
             "consistency_score": consistency_score,
         }
@@ -501,15 +547,17 @@ class SelfConsistency:
             marker = "✓" if answer == majority_answer else " "
             synthesis.append(f"{marker} {count}/{num_paths} ({percentage:.1f}%): {answer}")
 
-        synthesis.extend([
-            "",
-            "Consensus:",
-            "-" * 50,
-            f"Majority Answer: {majority_answer}",
-            f"Agreement Rate: {agreement_rate:.1%}",
-            f"Confidence: {'High' if agreement_rate >= self._min_agreement else 'Moderate'}",
-            "",
-        ])
+        synthesis.extend(
+            [
+                "",
+                "Consensus:",
+                "-" * 50,
+                f"Majority Answer: {majority_answer}",
+                f"Agreement Rate: {agreement_rate:.1%}",
+                f"Confidence: {'High' if agreement_rate >= self._min_agreement else 'Moderate'}",
+                "",
+            ]
+        )
 
         if agreement_rate >= 0.8:
             synthesis.append("Strong consensus achieved across reasoning paths.")
@@ -519,3 +567,100 @@ class SelfConsistency:
             synthesis.append("Low consensus - consider additional analysis or context.")
 
         return "\n".join(synthesis)
+
+    async def _sample_reasoning_step(self, problem: str, path_num: int, num_paths: int) -> str:
+        """Generate a reasoning step using LLM sampling.
+
+        Args:
+            problem: The problem to reason about
+            path_num: The path number (for variation)
+            num_paths: Total number of paths being generated
+
+        Returns:
+            A reasoning step string
+        """
+        system_prompt = """You are a reasoning assistant using Self-Consistency methodology.
+Generate a unique, independent reasoning approach for the given problem.
+Your reasoning should be different from other paths while addressing the same problem.
+Start with a clear approach statement and initial analysis."""
+
+        user_prompt = f"""Problem: {problem}
+
+This is reasoning path {path_num} of {num_paths}. Generate a unique starting approach.
+Be creative in your perspective while staying focused on the problem.
+Start with how you will approach this problem differently."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_reasoning_step(problem, path_num),
+            system_prompt=system_prompt,
+            temperature=0.8 + (path_num * 0.05),  # Vary temperature for diversity
+            max_tokens=500,
+        )
+
+    async def _sample_intermediate_reasoning(self, problem: str, path_num: int) -> str:
+        """Generate intermediate reasoning using LLM sampling.
+
+        Args:
+            problem: The problem to reason about
+            path_num: The path number
+
+        Returns:
+            Intermediate reasoning content
+        """
+        system_prompt = """You are a reasoning assistant continuing your analysis.
+Work through the logical steps, examine possibilities, and build toward a conclusion.
+Show your thinking process clearly."""
+
+        user_prompt = f"""Problem: {problem}
+
+Continue reasoning for path {path_num}. Work through the logical steps:
+- Examine key factors and relationships
+- Consider different possibilities
+- Evaluate which approach makes the most sense
+- Build toward your conclusion"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_intermediate_reasoning(problem, path_num),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=600,
+        )
+
+    async def _sample_path_conclusion(
+        self, problem: str, path_num: int, reasoning_step: str, intermediate: str
+    ) -> str:
+        """Generate a path conclusion using LLM sampling.
+
+        Args:
+            problem: The problem to reason about
+            path_num: The path number
+            reasoning_step: The initial reasoning for this path
+            intermediate: The intermediate reasoning content
+
+        Returns:
+            A conclusion string suitable for voting
+        """
+        system_prompt = """You are a reasoning assistant providing a final answer.
+Based on your reasoning, provide a clear, concise conclusion.
+Your answer should be specific and suitable for comparison with other answers.
+Keep the conclusion brief (1-2 sentences) so it can be compared with other paths."""
+
+        user_prompt = f"""Problem: {problem}
+
+Your reasoning path {path_num}:
+Initial approach: {reasoning_step}
+
+Intermediate analysis: {intermediate}
+
+Based on this reasoning, provide your final answer.
+Be specific and concise - this answer will be compared with other reasoning paths."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_path_conclusion(problem, path_num),
+            system_prompt=system_prompt,
+            temperature=0.5,  # Lower temperature for conclusions
+            max_tokens=200,
+        )

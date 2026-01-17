@@ -67,7 +67,20 @@ from reasoning_mcp.models.ensemble import (
 
 if TYPE_CHECKING:
     from reasoning_mcp.engine.executor import ExecutionContext
+    from reasoning_mcp.models.session import Session
     from reasoning_mcp.registry import MethodRegistry
+
+
+class MethodNotFoundError(Exception):
+    """Raised when a method is not found in the registry."""
+
+    pass
+
+
+class MethodExecutionError(Exception):
+    """Raised when a method execution fails."""
+
+    pass
 
 logger = logging.getLogger(__name__)
 
@@ -192,9 +205,9 @@ class EnsembleOrchestrator:
             and execution time in milliseconds.
 
         Raises:
-            Exception: Any exception raised by the underlying reasoning method
-                is propagated to the caller. The orchestrator handles these
-                exceptions at the ensemble level.
+            MethodNotFoundError: If the method is not found in the registry.
+            MethodExecutionError: If the method execution fails.
+            RuntimeError: For other execution failures.
 
         Examples:
             Execute a member with placeholder:
@@ -214,41 +227,81 @@ class EnsembleOrchestrator:
             >>> # Result comes from actual reasoning method
 
         Note:
-            Current implementation uses placeholder execution when no registry
-            is provided. In production, the method is retrieved from the registry
-            and executed with the member's configuration:
-
-            method = self._registry.get(member.method_name)
-            result = await method.execute(query, config=member.config)
+            When a registry is provided, the method is retrieved and executed
+            with the member's configuration. The result is extracted from the
+            ThoughtNode returned by the method's execute() call.
         """
         start_time = time.monotonic()
 
+        result_text: str
+        confidence: float
+
         try:
-            # Get method from registry and execute
-            # For now, simulate execution if no registry
-            # TODO: In production, integrate with actual method execution:
-            # if self._registry:
-            #     method = self._registry.get(member.method_name)
-            #     result_text = await method.execute(query, config=member.config)
-            #     confidence = method.calculate_confidence()
-            # else:
-            #     result_text = f"Result from {member.method_name}"
-            #     confidence = 0.85
+            if self._registry is not None:
+                # Get method from registry
+                method = self._registry.get(member.method_name)
+                if method is None:
+                    raise MethodNotFoundError(
+                        f"Method '{member.method_name}' not found in registry"
+                    )
 
-            # Placeholder execution for testing
-            result_text = f"Result from {member.method_name} for query: {query}"
-            confidence = 0.85
+                # Create or use existing session for method execution
+                session = self._get_or_create_session()
 
-            logger.debug(
-                "Executed member %s in %.2fms with confidence %.2f",
-                member.method_name,
-                (time.monotonic() - start_time) * 1000,
-                confidence,
-            )
+                # Build context from member config
+                context: dict[str, Any] | None = member.config
 
-        except Exception as e:
+                # Execute the method
+                thought_node = await method.execute(
+                    session=session,
+                    input_text=query,
+                    context=context,
+                    execution_context=self._execution_context,
+                )
+
+                # Extract result and confidence from thought node
+                result_text = thought_node.content
+                confidence = thought_node.confidence
+
+                logger.debug(
+                    "Executed member %s via registry in %.2fms with confidence %.2f",
+                    member.method_name,
+                    (time.monotonic() - start_time) * 1000,
+                    confidence,
+                )
+            else:
+                # Placeholder execution for testing when no registry is provided
+                result_text = f"Result from {member.method_name} for query: {query}"
+                confidence = 0.85
+
+                logger.debug(
+                    "Executed member %s (placeholder) in %.2fms with confidence %.2f",
+                    member.method_name,
+                    (time.monotonic() - start_time) * 1000,
+                    confidence,
+                )
+
+        except MethodNotFoundError:
+            # Re-raise method not found errors directly
+            raise
+        except asyncio.CancelledError:
+            # Re-raise cancellation to allow proper cleanup
+            raise
+        except (TypeError, ValueError, AttributeError) as e:
+            # Handle specific errors from method execution
             logger.error(
-                "Error executing member %s: %s",
+                "Method execution error for %s: %s",
+                member.method_name,
+                str(e),
+                exc_info=True,
+            )
+            raise MethodExecutionError(
+                f"Failed to execute method '{member.method_name}': {e}"
+            ) from e
+        except RuntimeError as e:
+            # Handle runtime errors (e.g., sampling not available)
+            logger.error(
+                "Runtime error executing member %s: %s",
                 member.method_name,
                 str(e),
                 exc_info=True,
@@ -263,6 +316,22 @@ class EnsembleOrchestrator:
             confidence=confidence,
             execution_time_ms=execution_time_ms,
         )
+
+    def _get_or_create_session(self) -> Session:
+        """Get existing session from execution context or create a new one.
+
+        Returns:
+            Session instance for method execution.
+        """
+        if self._execution_context is not None:
+            return self._execution_context.session
+
+        # Create a new session if no execution context
+        from reasoning_mcp.models.session import Session
+
+        session = Session()
+        session.start()
+        return session
 
     # Task 6.3: Execute all members in parallel
     async def execute(self, query: str) -> EnsembleResult:

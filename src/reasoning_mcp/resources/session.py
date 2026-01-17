@@ -17,7 +17,7 @@ if TYPE_CHECKING:
     from reasoning_mcp.server import AppContext
 
 
-def register_session_resources(mcp: "FastMCP") -> None:
+def register_session_resources(mcp: FastMCP) -> None:
     """Register session-related MCP resources with the server.
 
     This function registers two resources:
@@ -62,7 +62,9 @@ def register_session_resources(mcp: "FastMCP") -> None:
             >>> print(f"Thoughts: {session_data['metrics']['total_thoughts']}")
         """
         # Get app context from server
-        ctx: AppContext = mcp.app_context
+        from reasoning_mcp.server import get_app_context
+
+        ctx: AppContext = get_app_context()
 
         # Retrieve session from manager
         session = await ctx.session_manager.get(session_id)
@@ -116,7 +118,9 @@ def register_session_resources(mcp: "FastMCP") -> None:
             ```
         """
         # Get app context from server
-        ctx: AppContext = mcp.app_context
+        from reasoning_mcp.server import get_app_context
+
+        ctx: AppContext = get_app_context()
 
         # Retrieve session from manager
         session = await ctx.session_manager.get(session_id)
@@ -148,7 +152,7 @@ def register_session_resources(mcp: "FastMCP") -> None:
             mermaid_lines.append(f'    {safe_id}["{label}{branch_info}"]')
 
         # Add edges with relationship types
-        for edge_id, edge in graph.edges.items():
+        for _edge_id, edge in graph.edges.items():
             source_safe = edge.source_id.replace("-", "_")
             target_safe = edge.target_id.replace("-", "_")
 
@@ -173,7 +177,7 @@ def register_session_resources(mcp: "FastMCP") -> None:
 
         # Handle empty graph case
         if len(graph.nodes) == 0:
-            mermaid_lines.append("    empty[\"No thoughts in this session yet\"]")
+            mermaid_lines.append('    empty["No thoughts in this session yet"]')
 
         return "\n".join(mermaid_lines)
 

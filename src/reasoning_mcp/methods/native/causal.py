@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -21,6 +23,8 @@ from reasoning_mcp.models.thought import ThoughtNode
 if TYPE_CHECKING:
     from reasoning_mcp.models import Session
 
+logger = structlog.get_logger(__name__)
+
 
 # Metadata for Causal Reasoning method
 CAUSAL_REASONING_METADATA = MethodMetadata(
@@ -29,15 +33,17 @@ CAUSAL_REASONING_METADATA = MethodMetadata(
     description="Analyze cause-effect relationships, trace causal chains, identify root causes, "
     "and predict effects. Ideal for debugging, diagnosis, and prediction tasks.",
     category=MethodCategory.ADVANCED,
-    tags=frozenset({
-        "causal",
-        "cause-effect",
-        "root-cause",
-        "diagnosis",
-        "debugging",
-        "prediction",
-        "systems-thinking",
-    }),
+    tags=frozenset(
+        {
+            "causal",
+            "cause-effect",
+            "root-cause",
+            "diagnosis",
+            "debugging",
+            "prediction",
+            "systems-thinking",
+        }
+    ),
     complexity=6,  # Medium-high complexity
     supports_branching=True,  # Can branch to explore different causal paths
     supports_revision=True,  # Can revise causal hypotheses
@@ -64,7 +70,7 @@ CAUSAL_REASONING_METADATA = MethodMetadata(
 )
 
 
-class CausalReasoning:
+class CausalReasoning(ReasoningMethodBase):
     """Causal Reasoning method implementation.
 
     This class implements causal reasoning by systematically analyzing cause-effect
@@ -116,6 +122,8 @@ class CausalReasoning:
         self._causal_chain: list[dict[str, Any]] = []
         self._root_causes: list[str] = []
         self._effects: list[str] = []
+        self._use_sampling = False
+        self._execution_context: Any = None
 
     @property
     def identifier(self) -> str:
@@ -176,6 +184,7 @@ class CausalReasoning:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         """Execute the Causal Reasoning method.
 
@@ -187,6 +196,7 @@ class CausalReasoning:
             session: The current reasoning session
             input_text: The problem, effect, or outcome to analyze causally
             context: Optional additional context (e.g., system state, observations)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the initial causal analysis
@@ -207,9 +217,15 @@ class CausalReasoning:
             >>> assert thought.method_id == MethodIdentifier.CAUSAL_REASONING
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Causal Reasoning method must be initialized before execution"
-            )
+            raise RuntimeError("Causal Reasoning method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = (
+            execution_context is not None
+            and hasattr(execution_context, "can_sample")
+            and execution_context.can_sample
+        )
+        self._execution_context = execution_context
 
         # Reset state for new execution
         self._step_counter = 1
@@ -218,7 +234,10 @@ class CausalReasoning:
         self._effects = []
 
         # Create the initial observation and hypothesis generation
-        content = self._generate_initial_analysis(input_text, context)
+        if self._use_sampling:
+            content = await self._sample_initial_analysis(input_text, context)
+        else:
+            content = self._generate_initial_analysis(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -233,6 +252,7 @@ class CausalReasoning:
                 "reasoning_type": "causal",
                 "stage": "observation_and_hypothesis",
                 "causal_factors": [],
+                "sampled": self._use_sampling,
             },
         )
 
@@ -249,6 +269,7 @@ class CausalReasoning:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         """Continue causal reasoning from a previous thought.
 
@@ -264,6 +285,7 @@ class CausalReasoning:
             previous_thought: The thought to continue from
             guidance: Optional guidance (e.g., "trace root cause", "predict effects")
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the causal analysis
@@ -285,9 +307,15 @@ class CausalReasoning:
             >>> assert second.parent_id == first.id
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Causal Reasoning method must be initialized before continuation"
-            )
+            raise RuntimeError("Causal Reasoning method must be initialized before continuation")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = (
+            execution_context is not None
+            and hasattr(execution_context, "can_sample")
+            and execution_context.can_sample
+        )
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -299,12 +327,20 @@ class CausalReasoning:
         thought_type = self._determine_thought_type(stage, guidance)
 
         # Generate continuation content based on stage
-        content = self._generate_continuation(
-            previous_thought=previous_thought,
-            stage=stage,
-            guidance=guidance,
-            context=context,
-        )
+        if self._use_sampling:
+            content = await self._sample_continuation(
+                previous_thought=previous_thought,
+                stage=stage,
+                guidance=guidance,
+                context=context,
+            )
+        else:
+            content = self._generate_continuation(
+                previous_thought=previous_thought,
+                stage=stage,
+                guidance=guidance,
+                context=context,
+            )
 
         # Calculate confidence (may increase as we trace to root causes)
         confidence = self._calculate_confidence(stage, previous_thought)
@@ -325,6 +361,7 @@ class CausalReasoning:
                 "reasoning_type": "causal",
                 "causal_chain_depth": len(self._causal_chain),
                 "root_causes_identified": len(self._root_causes),
+                "sampled": self._use_sampling,
             },
         )
 
@@ -427,9 +464,7 @@ the full causal network."""
             "alternative_path": self._generate_alternative_path_content,
         }
 
-        generator = stage_templates.get(
-            stage, self._generate_generic_continuation_content
-        )
+        generator = stage_templates.get(stage, self._generate_generic_continuation_content)
         return generator(previous_thought, guidance_text, context)
 
     def _generate_causal_tracing_content(
@@ -730,3 +765,136 @@ causal understanding.{guidance_text}"""
 
         # Keep confidence in valid range
         return max(0.3, min(0.95, new_confidence))
+
+    async def _sample_initial_analysis(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate initial causal analysis using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        actual causal analysis rather than placeholder content.
+
+        Args:
+            input_text: The effect or outcome to analyze
+            context: Optional additional context
+
+        Returns:
+            The content for the initial thought
+        """
+        context_info = ""
+        if context:
+            context_info = f"\n\nAdditional Context: {context}"
+
+        system_prompt = """You are a causal reasoning expert using systematic cause-effect analysis.
+Analyze the given effect/outcome to identify potential causes and causal relationships.
+
+Structure your analysis with:
+1. OBSERVATION: Clearly define the effect/outcome to analyze
+2. INITIAL CAUSAL HYPOTHESES: Identify potential immediate causes
+3. CAUSAL RELATIONSHIP TYPES: Classify causes as direct, contributing, or enabling
+4. Next steps: Outline how to trace the causal chain
+
+Be systematic and explicit about causal relationships. Distinguish between
+correlation and causation."""
+
+        user_prompt = f"""Effect/Outcome to Analyze: {input_text}{context_info}
+
+Generate an initial causal analysis following the framework:
+- Observation of the effect
+- Initial causal hypotheses
+- Types of causal relationships to explore
+- Next steps for deeper analysis"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_initial_analysis(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
+        )
+
+    async def _sample_continuation(
+        self,
+        previous_thought: ThoughtNode,
+        stage: str,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate continuation using LLM sampling.
+
+        Uses the execution context's sampling capability to continue
+        causal analysis from a previous thought.
+
+        Args:
+            previous_thought: The thought to build upon
+            stage: The current stage of causal analysis
+            guidance: Optional guidance for the next step
+            context: Optional additional context
+
+        Returns:
+            The content for the continuation thought
+        """
+        guidance_text = f"\nGuidance: {guidance}" if guidance else ""
+        context_text = f"\nAdditional Context: {context}" if context else ""
+
+        stage_descriptions = {
+            "causal_tracing": (
+                "Trace the causal chain backward from the effect to deeper causes. "
+                "Identify immediate causes, intermediate causes, and causal dependencies."
+            ),
+            "root_cause_identification": (
+                "Identify fundamental root causes that can't be traced further back. "
+                "Distinguish between proximate and systemic causes."
+            ),
+            "effect_prediction": (
+                "Predict downstream effects and consequences. Include direct effects, "
+                "cascading effects, and potential unintended consequences."
+            ),
+            "validation": (
+                "Validate the causal hypotheses. Check temporal precedence, covariation, "
+                "alternative explanations, and causal mechanisms."
+            ),
+            "synthesis": (
+                "Synthesize the complete causal understanding. Map the full causal chain "
+                "from root causes to effects and identify actionable insights."
+            ),
+            "alternative_path": (
+                "Explore an alternative causal pathway or hypothesis. Compare it with "
+                "the primary hypothesis and assess integration potential."
+            ),
+        }
+
+        stage_instruction = stage_descriptions.get(
+            stage,
+            (
+                "Continue the causal analysis, deepening understanding of "
+                "cause-effect relationships."
+            ),
+        )
+
+        system_prompt = f"""You are a causal reasoning expert continuing a systematic analysis.
+Current Stage: {stage.replace("_", " ").title()}
+
+{stage_instruction}
+
+Build upon the previous analysis with clear logical connections and explicit causal reasoning."""
+
+        user_prompt = f"""Previous Analysis (Step {previous_thought.step_number}):
+{previous_thought.content}
+
+Current Stage: {stage.replace("_", " ").title()}
+{guidance_text}{context_text}
+
+Continue the causal analysis for this stage, building on the previous step."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_continuation(
+                previous_thought, stage, guidance, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
+        )

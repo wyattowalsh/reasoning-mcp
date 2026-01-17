@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from reasoning_mcp.engine.executor import PipelineExecutor
-from reasoning_mcp.models.core import PipelineStageType
 from reasoning_mcp.models.pipeline import (
     ConditionalPipeline,
     LoopPipeline,
@@ -21,7 +19,7 @@ from reasoning_mcp.models.pipeline import (
 )
 
 if TYPE_CHECKING:
-    pass  # For future executor imports
+    from reasoning_mcp.engine.executor import PipelineExecutor
 
 
 def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
@@ -54,8 +52,7 @@ def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
             return MethodExecutor(stage)
         except ImportError:
             raise ValueError(
-                "MethodExecutor not yet implemented. "
-                "This will be available in TASK-090."
+                "MethodExecutor not yet implemented. This will be available in TASK-090."
             )
 
     # Sequence stage
@@ -66,8 +63,7 @@ def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
             return SequenceExecutor(stage)
         except ImportError:
             raise ValueError(
-                "SequenceExecutor not yet implemented. "
-                "This will be available in TASK-091."
+                "SequenceExecutor not yet implemented. This will be available in TASK-091."
             )
 
     # Parallel stage
@@ -78,8 +74,7 @@ def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
             return ParallelExecutor(stage)
         except ImportError:
             raise ValueError(
-                "ParallelExecutor not yet implemented. "
-                "This will be available in TASK-092."
+                "ParallelExecutor not yet implemented. This will be available in TASK-092."
             )
 
     # Conditional stage
@@ -90,8 +85,7 @@ def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
             return ConditionalExecutor(stage)
         except ImportError:
             raise ValueError(
-                "ConditionalExecutor not yet implemented. "
-                "This will be available in TASK-093."
+                "ConditionalExecutor not yet implemented. This will be available in TASK-093."
             )
 
     # Loop stage
@@ -102,8 +96,7 @@ def get_executor_for_stage(stage: Pipeline) -> PipelineExecutor:
             return LoopExecutor(stage)
         except ImportError:
             raise ValueError(
-                "LoopExecutor not yet implemented. "
-                "This will be available in TASK-094."
+                "LoopExecutor not yet implemented. This will be available in TASK-094."
             )
 
     # Unknown stage type

@@ -16,7 +16,7 @@ Each resource is tested for:
 """
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -24,7 +24,6 @@ import pytest
 from reasoning_mcp.models.core import MethodIdentifier, SessionStatus, ThoughtType
 from reasoning_mcp.models.session import Session, SessionConfig, SessionMetrics
 from reasoning_mcp.models.thought import ThoughtGraph, ThoughtNode
-
 
 # ============================================================================
 # Test Fixtures
@@ -69,8 +68,8 @@ def sample_session() -> Session:
         graph=ThoughtGraph(),
         status=SessionStatus.COMPLETED,
         current_method=MethodIdentifier.CHAIN_OF_THOUGHT,
-        started_at=datetime(2024, 1, 6, 12, 0, 0, tzinfo=timezone.utc),
-        completed_at=datetime(2024, 1, 6, 12, 2, 0, tzinfo=timezone.utc),
+        started_at=datetime(2024, 1, 6, 12, 0, 0, tzinfo=UTC),
+        completed_at=datetime(2024, 1, 6, 12, 2, 0, tzinfo=UTC),
     )
 
     # Add thoughts to the graph
@@ -84,7 +83,7 @@ def sample_session() -> Session:
         quality_score=0.75,
         depth=0,
         step_number=1,
-        created_at=datetime(2024, 1, 6, 12, 0, 1, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 6, 12, 0, 1, tzinfo=UTC),
     )
     session.graph.add_thought(thought1)
 
@@ -99,7 +98,7 @@ def sample_session() -> Session:
         depth=1,
         step_number=2,
         parent_id="thought-1",
-        created_at=datetime(2024, 1, 6, 12, 0, 30, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 6, 12, 0, 30, tzinfo=UTC),
     )
     session.graph.add_thought(thought2)
 
@@ -115,7 +114,7 @@ def sample_session() -> Session:
         step_number=3,
         parent_id="thought-2",
         branch_id="branch-main",
-        created_at=datetime(2024, 1, 6, 12, 1, 0, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 6, 12, 1, 0, tzinfo=UTC),
     )
     session.graph.add_thought(thought3)
 
@@ -131,7 +130,7 @@ def sample_session() -> Session:
         step_number=4,
         parent_id="thought-2",
         branch_id="branch-alternative",
-        created_at=datetime(2024, 1, 6, 12, 1, 15, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 6, 12, 1, 15, tzinfo=UTC),
     )
     session.graph.add_thought(thought4)
 
@@ -146,7 +145,7 @@ def sample_session() -> Session:
         depth=3,
         step_number=5,
         parent_id="thought-3",
-        created_at=datetime(2024, 1, 6, 12, 1, 45, tzinfo=timezone.utc),
+        created_at=datetime(2024, 1, 6, 12, 1, 45, tzinfo=UTC),
     )
     session.graph.add_thought(thought5)
 
@@ -174,6 +173,31 @@ def empty_session() -> Session:
 # ============================================================================
 # Mock AppContext
 # ============================================================================
+
+from unittest.mock import patch
+
+
+@pytest.fixture(autouse=True)
+def mock_app_context_fixture():
+    """Autouse fixture that patches get_app_context for all trace tests.
+
+    This creates a fresh MockSessionManager for each test and patches
+    get_app_context to return a MockAppContext using it. Tests can
+    access the session manager via the mock_session_manager fixture.
+    """
+    session_manager = MockSessionManager()
+    app_context = MockAppContext(session_manager)
+
+    with patch("reasoning_mcp.server.get_app_context", return_value=app_context):
+        # Store on the class for the mock_session_manager fixture
+        mock_app_context_fixture._current_session_manager = session_manager
+        yield session_manager
+
+
+@pytest.fixture
+def mock_session_manager(mock_app_context_fixture):
+    """Provide the mock session manager for tests to configure."""
+    return mock_app_context_fixture
 
 
 class MockSessionManager:
@@ -224,14 +248,13 @@ class TestTraceResource:
     """Test suite for trace://{session_id} resource."""
 
     @pytest.mark.asyncio
-    async def test_trace_basic_functionality(self, sample_session):
+    async def test_trace_basic_functionality(self, mock_session_manager, sample_session):
         """Test basic trace resource functionality."""
         # Setup
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
 
         # Register resources
         register_trace_resources(mcp)
@@ -260,13 +283,12 @@ class TestTraceResource:
         assert "conclusions" in trace
 
     @pytest.mark.asyncio
-    async def test_trace_metadata_structure(self, sample_session):
+    async def test_trace_metadata_structure(self, mock_session_manager, sample_session):
         """Test that trace metadata contains all required fields."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -283,13 +305,12 @@ class TestTraceResource:
         assert metadata["error"] is None
 
     @pytest.mark.asyncio
-    async def test_trace_config_structure(self, sample_session):
+    async def test_trace_config_structure(self, mock_session_manager, sample_session):
         """Test that trace config contains all configuration fields."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -306,13 +327,12 @@ class TestTraceResource:
         assert config["min_confidence_threshold"] == 0.3
 
     @pytest.mark.asyncio
-    async def test_trace_metrics_structure(self, sample_session):
+    async def test_trace_metrics_structure(self, mock_session_manager, sample_session):
         """Test that trace metrics contains all metrics fields."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -330,13 +350,12 @@ class TestTraceResource:
         assert metrics["elapsed_time"] == 120.5
 
     @pytest.mark.asyncio
-    async def test_trace_thoughts_chronological_order(self, sample_session):
+    async def test_trace_thoughts_chronological_order(self, mock_session_manager, sample_session):
         """Test that thoughts are returned in chronological order."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -359,13 +378,12 @@ class TestTraceResource:
         assert thoughts[0]["type"] == "initial"
 
     @pytest.mark.asyncio
-    async def test_trace_thought_structure(self, sample_session):
+    async def test_trace_thought_structure(self, mock_session_manager, sample_session):
         """Test that each thought contains all required fields."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -391,13 +409,12 @@ class TestTraceResource:
         assert "created_at" in thought
 
     @pytest.mark.asyncio
-    async def test_trace_branches_structure(self, sample_session):
+    async def test_trace_branches_structure(self, mock_session_manager, sample_session):
         """Test that branches section contains correct information."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -419,13 +436,12 @@ class TestTraceResource:
             assert "created_at" in branch_point
 
     @pytest.mark.asyncio
-    async def test_trace_conclusions_detection_high_confidence(self, sample_session):
+    async def test_trace_conclusions_detection_high_confidence(self, mock_session_manager, sample_session):
         """Test that conclusions include thoughts with confidence >= 0.7."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -452,13 +468,12 @@ class TestTraceResource:
         assert high_conf_conclusion["confidence"] == 0.95
 
     @pytest.mark.asyncio
-    async def test_trace_conclusions_include_explicit_type(self, sample_session):
+    async def test_trace_conclusions_include_explicit_type(self, mock_session_manager, sample_session):
         """Test that conclusions include thoughts with conclusion type."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -472,12 +487,12 @@ class TestTraceResource:
         assert len(conclusion_thoughts) == 1
 
     @pytest.mark.asyncio
-    async def test_trace_session_not_found(self):
+    async def test_trace_session_not_found(self, mock_session_manager):
         """Test that trace resource raises ValueError for non-existent session."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        # Don't add any session - test for not found error
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -489,13 +504,12 @@ class TestTraceResource:
         assert "non-existent-session" in str(exc_info.value)
 
     @pytest.mark.asyncio
-    async def test_trace_empty_session(self, empty_session):
+    async def test_trace_empty_session(self, mock_session_manager, empty_session):
         """Test trace resource with empty session (no thoughts)."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(empty_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(empty_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -512,13 +526,12 @@ class TestTraceResource:
         assert trace["metrics"]["total_edges"] == 0
 
     @pytest.mark.asyncio
-    async def test_trace_json_formatting(self, sample_session):
+    async def test_trace_json_formatting(self, mock_session_manager, sample_session):
         """Test that trace JSON is properly formatted."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -533,7 +546,7 @@ class TestTraceResource:
         assert "  " in result
 
     @pytest.mark.asyncio
-    async def test_trace_all_leaf_nodes_as_fallback(self):
+    async def test_trace_all_leaf_nodes_as_fallback(self, mock_session_manager):
         """Test that all leaf nodes are included if no high-confidence conclusions exist."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
@@ -574,9 +587,8 @@ class TestTraceResource:
         )
         session.graph.add_thought(thought2)
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -590,13 +602,12 @@ class TestTraceResource:
         assert conclusions[0]["confidence"] == 0.4
 
     @pytest.mark.asyncio
-    async def test_trace_branch_identification(self, sample_session):
+    async def test_trace_branch_identification(self, mock_session_manager, sample_session):
         """Test that branch points are correctly identified."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
         register_trace_resources(mcp)
 
         resource_func = mcp.resources["trace://{session_id}"]
@@ -626,12 +637,11 @@ class TestTraceResourceIntegration:
     """Integration tests for trace resource."""
 
     @pytest.mark.asyncio
-    async def test_trace_resource_registration(self):
+    async def test_trace_resource_registration(self, mock_session_manager):
         """Test that trace resource is properly registered."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
-        session_manager = MockSessionManager()
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mcp = MockFastMCP(None)  # Context is patched via fixture
 
         # Before registration
         assert "trace://{session_id}" not in mcp.resources
@@ -644,14 +654,13 @@ class TestTraceResourceIntegration:
         assert callable(mcp.resources["trace://{session_id}"])
 
     @pytest.mark.asyncio
-    async def test_trace_full_workflow(self, sample_session):
+    async def test_trace_full_workflow(self, mock_session_manager, sample_session):
         """Test complete trace workflow from registration to retrieval."""
         from reasoning_mcp.resources.trace import register_trace_resources
 
         # Setup
-        session_manager = MockSessionManager()
-        session_manager.add_session(sample_session)
-        mcp = MockFastMCP(MockAppContext(session_manager))
+        mock_session_manager.add_session(sample_session)
+        mcp = MockFastMCP(None)  # Context is patched via fixture
 
         # Register resources
         register_trace_resources(mcp)

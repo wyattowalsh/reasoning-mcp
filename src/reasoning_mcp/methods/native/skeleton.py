@@ -15,7 +15,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -23,7 +25,10 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.thought import ThoughtNode
 
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -34,14 +39,16 @@ SKELETON_OF_THOUGHT_METADATA = MethodMetadata(
     description="Create high-level skeleton first, then fill in details. "
     "Generates an outline, expands each point in parallel, then assembles the final answer.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "skeleton",
-        "outline",
-        "parallel",
-        "structured",
-        "long-form",
-        "hierarchical",
-    }),
+    tags=frozenset(
+        {
+            "skeleton",
+            "outline",
+            "parallel",
+            "structured",
+            "long-form",
+            "hierarchical",
+        }
+    ),
     complexity=4,  # Medium complexity - structured but requires parallelization
     supports_branching=True,  # Supports parallel expansion of skeleton points
     supports_revision=True,  # Can revise skeleton or expansions
@@ -66,7 +73,7 @@ SKELETON_OF_THOUGHT_METADATA = MethodMetadata(
 )
 
 
-class SkeletonOfThought:
+class SkeletonOfThought(ReasoningMethodBase):
     """Skeleton of Thought reasoning method implementation.
 
     This class implements the Skeleton of Thought pattern, which creates structured
@@ -106,6 +113,8 @@ class SkeletonOfThought:
         ... )
     """
 
+    _use_sampling: bool = True
+
     def __init__(self) -> None:
         """Initialize the Skeleton of Thought method."""
         self._initialized = False
@@ -113,6 +122,7 @@ class SkeletonOfThought:
         self._skeleton_points: list[str] = []
         self._expanded_points: dict[int, str] = {}
         self._phase: str = "skeleton"  # skeleton, expansion, or assembly
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -174,6 +184,7 @@ class SkeletonOfThought:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Skeleton of Thought method.
 
@@ -185,6 +196,7 @@ class SkeletonOfThought:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the skeleton/outline
@@ -205,9 +217,10 @@ class SkeletonOfThought:
             >>> assert "skeleton" in thought.metadata
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Skeleton of Thought method must be initialized before execution"
-            )
+            raise RuntimeError("Skeleton of Thought method must be initialized before execution")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -215,8 +228,11 @@ class SkeletonOfThought:
         self._expanded_points = {}
         self._phase = "skeleton"
 
-        # Generate the skeleton
-        content = self._generate_skeleton(input_text, context)
+        # Generate the skeleton (use sampling if available)
+        if execution_context and execution_context.can_sample:
+            content = await self._sample_skeleton_generation(input_text, context)
+        else:
+            content = self._generate_skeleton_heuristic(input_text, context)
 
         # Extract skeleton points for tracking
         self._skeleton_points = self._extract_skeleton_points(content)
@@ -234,6 +250,7 @@ class SkeletonOfThought:
                 "phase": "skeleton",
                 "skeleton_points": self._skeleton_points,
                 "total_points": len(self._skeleton_points),
+                "sampled": execution_context is not None and execution_context.can_sample,
             },
         )
 
@@ -253,6 +270,7 @@ class SkeletonOfThought:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -265,6 +283,7 @@ class SkeletonOfThought:
             previous_thought: The thought to continue from
             guidance: Optional guidance (e.g., "Expand point 2")
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode for the expansion or assembly
@@ -283,9 +302,10 @@ class SkeletonOfThought:
             >>> assert "expansion" in expansion.metadata["phase"]
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Skeleton of Thought method must be initialized before continuation"
-            )
+            raise RuntimeError("Skeleton of Thought method must be initialized before continuation")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         self._step_counter += 1
 
@@ -295,12 +315,14 @@ class SkeletonOfThought:
                 previous_thought=previous_thought,
                 guidance=guidance,
                 context=context,
+                execution_context=execution_context,
             )
         elif self._phase == "assembly":
             return await self._assemble_final(
                 session=session,
                 previous_thought=previous_thought,
                 context=context,
+                execution_context=execution_context,
             )
         else:
             # Fallback: continue expansion
@@ -309,6 +331,7 @@ class SkeletonOfThought:
                 previous_thought=previous_thought,
                 guidance=guidance,
                 context=context,
+                execution_context=execution_context,
             )
 
     async def health_check(self) -> bool:
@@ -325,16 +348,57 @@ class SkeletonOfThought:
         """
         return self._initialized
 
-    def _generate_skeleton(
+    async def _sample_skeleton_generation(
         self,
         input_text: str,
         context: dict[str, Any] | None,
     ) -> str:
-        """Generate the initial skeleton/outline.
+        """Generate skeleton using LLM sampling.
 
-        This creates a high-level outline of the main points to address.
-        In a full implementation, this would use an LLM to generate
-        an appropriate skeleton based on the input.
+        Uses the execution context's sampling capability to generate
+        a high-level outline/skeleton for the problem.
+
+        Args:
+            input_text: The problem or question to create a skeleton for
+            context: Optional additional context
+
+        Returns:
+            The skeleton content as a string
+        """
+        system_prompt = """You are a reasoning assistant using Skeleton of Thought methodology.
+Generate a high-level outline/skeleton that breaks down the problem into main points.
+
+Your skeleton should:
+1. Identify 3-7 main points to address
+2. Use clear, numbered structure
+3. Include brief sub-points under each main point
+4. Provide a logical flow from introduction to conclusion
+5. Be concise but comprehensive
+
+Format your outline clearly with numbered points and indented sub-points."""
+
+        user_prompt = f"""Problem: {input_text}
+
+Generate a Skeleton of Thought outline for addressing this problem.
+Create a structured outline with main points and sub-points."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_skeleton_heuristic(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+    def _generate_skeleton_heuristic(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate the initial skeleton/outline using heuristics.
+
+        This creates a high-level outline of the main points to address
+        when LLM sampling is not available.
 
         Args:
             input_text: The problem or question to create a skeleton for
@@ -390,6 +454,7 @@ class SkeletonOfThought:
         previous_thought: ThoughtNode,
         guidance: str | None,
         context: dict[str, Any] | None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Expand a specific skeleton point.
 
@@ -401,6 +466,7 @@ class SkeletonOfThought:
             previous_thought: The thought to build upon
             guidance: Guidance about which point to expand
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode with the expanded content
@@ -409,13 +475,21 @@ class SkeletonOfThought:
         point_num = self._extract_point_number(guidance)
         point_index = point_num - 1 if point_num > 0 else len(self._expanded_points)
 
-        # Generate expansion content
-        content = self._generate_expansion(
-            point_num=point_num,
-            skeleton_points=self._skeleton_points,
-            guidance=guidance,
-            context=context,
-        )
+        # Generate expansion content (use sampling if available)
+        if execution_context and execution_context.can_sample:
+            content = await self._sample_expansion(
+                point_num=point_num,
+                skeleton_points=self._skeleton_points,
+                guidance=guidance,
+                context=context,
+            )
+        else:
+            content = self._generate_expansion_heuristic(
+                point_num=point_num,
+                skeleton_points=self._skeleton_points,
+                guidance=guidance,
+                context=context,
+            )
 
         # Track this expansion
         self._expanded_points[point_index] = content
@@ -440,6 +514,7 @@ class SkeletonOfThought:
                 "context": context or {},
                 "expansions_complete": len(self._expanded_points),
                 "total_points": len(self._skeleton_points),
+                "sampled": execution_context is not None and execution_context.can_sample,
             },
         )
 
@@ -451,6 +526,7 @@ class SkeletonOfThought:
         session: Session,
         previous_thought: ThoughtNode,
         context: dict[str, Any] | None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Assemble all expanded points into the final answer.
 
@@ -460,15 +536,24 @@ class SkeletonOfThought:
             session: The current reasoning session
             previous_thought: The thought to build upon
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode with the final assembled answer
         """
-        content = self._generate_assembly(
-            expanded_points=self._expanded_points,
-            skeleton_points=self._skeleton_points,
-            context=context,
-        )
+        # Generate assembly content (use sampling if available)
+        if execution_context and execution_context.can_sample:
+            content = await self._sample_assembly(
+                expanded_points=self._expanded_points,
+                skeleton_points=self._skeleton_points,
+                context=context,
+            )
+        else:
+            content = self._generate_assembly_heuristic(
+                expanded_points=self._expanded_points,
+                skeleton_points=self._skeleton_points,
+                context=context,
+            )
 
         thought = ThoughtNode(
             type=ThoughtType.SYNTHESIS,
@@ -482,6 +567,7 @@ class SkeletonOfThought:
                 "phase": "assembly",
                 "points_assembled": len(self._expanded_points),
                 "context": context or {},
+                "sampled": execution_context is not None and execution_context.can_sample,
             },
         )
 
@@ -502,22 +588,76 @@ class SkeletonOfThought:
 
         # Try to extract number from guidance
         import re
+
         match = re.search(r"\d+", guidance)
         if match:
             return int(match.group())
 
         return len(self._expanded_points) + 1
 
-    def _generate_expansion(
+    async def _sample_expansion(
         self,
         point_num: int,
         skeleton_points: list[str],
         guidance: str | None,
         context: dict[str, Any] | None,
     ) -> str:
-        """Generate expansion content for a specific point.
+        """Generate expansion content using LLM sampling.
 
-        In a full implementation, this would use an LLM to expand the point.
+        Uses the execution context's sampling capability to expand
+        a specific skeleton point with detailed content.
+
+        Args:
+            point_num: The point number to expand
+            skeleton_points: The list of skeleton points
+            guidance: Optional guidance
+            context: Optional context
+
+        Returns:
+            The expansion content
+        """
+        skeleton_context = "\n".join(
+            f"Point {i + 1}: {point}" for i, point in enumerate(skeleton_points)
+        )
+        guidance_text = f"\n\nAdditional guidance: {guidance}" if guidance else ""
+
+        system_prompt = """You are a reasoning assistant using Skeleton of Thought methodology.
+Expand a specific point from the skeleton outline with detailed, comprehensive content.
+
+Your expansion should:
+1. Provide thorough coverage of the point
+2. Include examples, explanations, and relevant details
+3. Stay focused on the specific point
+4. Use clear, well-organized prose
+5. Be substantial but not overly verbose"""
+
+        user_prompt = f"""Skeleton outline:
+{skeleton_context}
+
+Expand Point {point_num} in detail.{guidance_text}
+
+Provide a comprehensive expansion of this point."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_expansion_heuristic(
+                point_num, skeleton_points, guidance, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1200,
+        )
+
+    def _generate_expansion_heuristic(
+        self,
+        point_num: int,
+        skeleton_points: list[str],
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate expansion content for a specific point using heuristics.
+
+        Fallback method when LLM sampling is not available.
 
         Args:
             point_num: The point number to expand
@@ -536,19 +676,20 @@ class SkeletonOfThought:
             f"This section provides comprehensive coverage of this topic, "
             f"including examples, explanations, and relevant details.\n\n"
             f"[In a full implementation, this would be a detailed expansion "
-            f"generated by an LLM based on the skeleton point and the original question.]{guidance_text}"
+            f"generated by an LLM based on the skeleton point "
+            f"and the original question.]{guidance_text}"
         )
 
-    def _generate_assembly(
+    async def _sample_assembly(
         self,
         expanded_points: dict[int, str],
         skeleton_points: list[str],
         context: dict[str, Any] | None,
     ) -> str:
-        """Generate the final assembled answer.
+        """Generate the final assembled answer using LLM sampling.
 
-        In a full implementation, this would use an LLM to synthesize
-        all expanded points into a coherent response.
+        Uses the execution context's sampling capability to synthesize
+        all expanded points into a coherent, complete response.
 
         Args:
             expanded_points: Dict of expanded point content
@@ -558,15 +699,67 @@ class SkeletonOfThought:
         Returns:
             The final assembled content
         """
+        # Format expanded points for context
+        expansions_text = "\n\n".join(
+            f"Point {i + 1} Expansion:\n{content}" for i, content in sorted(expanded_points.items())
+        )
+
+        system_prompt = """You are a reasoning assistant using Skeleton of Thought methodology.
+Synthesize all expanded points into a coherent, complete final answer.
+
+Your assembly should:
+1. Create a natural, flowing narrative
+2. Integrate all expanded points smoothly
+3. Ensure logical transitions between sections
+4. Provide a comprehensive, well-structured response
+5. Maintain clarity and coherence throughout"""
+
+        user_prompt = f"""Here are the expanded points from the skeleton:
+
+{expansions_text}
+
+Synthesize these expansions into a coherent, complete final answer that flows naturally
+and provides a comprehensive response to the original question."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_assembly_heuristic(
+                expanded_points, skeleton_points, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=2000,
+        )
+
+    def _generate_assembly_heuristic(
+        self,
+        expanded_points: dict[int, str],
+        skeleton_points: list[str],
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate the final assembled answer using heuristics.
+
+        Fallback method when LLM sampling is not available.
+
+        Args:
+            expanded_points: Dict of expanded point content
+            skeleton_points: The original skeleton points
+            context: Optional context
+
+        Returns:
+            The final assembled content
+        """
+        points_summary = "\n".join(
+            f"- Point {i + 1}: "
+            f"{skeleton_points[i] if i < len(skeleton_points) else f'Point {i + 1}'}"
+            for i in range(len(expanded_points))
+        )
         return (
             f"Final Assembly: Complete Answer\n\n"
-            f"Synthesizing all {len(expanded_points)} expanded points into a comprehensive response.\n\n"
+            f"Synthesizing all {len(expanded_points)} expanded points "
+            f"into a comprehensive response.\n\n"
             f"This final answer integrates:\n"
-            + "\n".join(
-                f"- Point {i+1}: {skeleton_points[i] if i < len(skeleton_points) else f'Point {i+1}'}"
-                for i in range(len(expanded_points))
-            )
-            + "\n\n"
-            f"[In a full implementation, this would be a coherent, well-structured "
-            f"response that flows naturally while incorporating all the expanded points.]"
+            f"{points_summary}\n\n"
+            "[In a full implementation, this would be a coherent, well-structured "
+            "response that flows naturally while incorporating all the expanded points.]"
         )

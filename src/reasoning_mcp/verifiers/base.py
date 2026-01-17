@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from reasoning_mcp.models.core import VerifierIdentifier
+if TYPE_CHECKING:
+    from reasoning_mcp.models.core import VerifierIdentifier
 
 
 @dataclass(frozen=True)
@@ -44,9 +45,7 @@ class VerifierMetadata:
         if not 1 <= self.complexity <= 10:
             raise ValueError(f"complexity must be 1-10, got {self.complexity}")
         if not self.supports_step_level and not self.supports_outcome_level:
-            raise ValueError(
-                "verifier must support at least one of step_level or outcome_level"
-            )
+            raise ValueError("verifier must support at least one of step_level or outcome_level")
 
 
 @runtime_checkable

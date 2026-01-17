@@ -32,7 +32,7 @@ __all__ = [
 ]
 
 
-def __getattr__(name: str):
+def __getattr__(name: str) -> type:
     """Lazy import for optional dependencies."""
     if name == "DiskSessionStorage":
         from reasoning_mcp.storage.disk import DiskSessionStorage

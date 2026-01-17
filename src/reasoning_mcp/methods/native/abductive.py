@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,6 +21,7 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -30,15 +33,17 @@ ABDUCTIVE_METADATA = MethodMetadata(
     "Generates and evaluates candidate hypotheses to find the most likely "
     "explanation for observed phenomena.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "abductive",
-        "hypothesis",
-        "inference",
-        "diagnosis",
-        "investigation",
-        "explanation",
-        "evidence-based",
-    }),
+    tags=frozenset(
+        {
+            "abductive",
+            "hypothesis",
+            "inference",
+            "diagnosis",
+            "investigation",
+            "explanation",
+            "evidence-based",
+        }
+    ),
     complexity=6,  # Medium-high complexity
     supports_branching=True,  # Branch for multiple hypotheses
     supports_revision=True,  # Can revise hypotheses based on new evidence
@@ -65,8 +70,10 @@ ABDUCTIVE_METADATA = MethodMetadata(
     ),
 )
 
+logger = structlog.get_logger(__name__)
 
-class Abductive:
+
+class Abductive(ReasoningMethodBase):
     """Abductive reasoning method implementation.
 
     This class implements abductive reasoning - the process of inferring the best
@@ -108,6 +115,8 @@ class Abductive:
         >>> print(hypotheses.type)  # HYPOTHESIS
     """
 
+    _use_sampling: bool = True
+
     def __init__(self) -> None:
         """Initialize the Abductive reasoning method."""
         self._initialized = False
@@ -115,6 +124,7 @@ class Abductive:
         self._stage = "observations"  # Current stage in abductive process
         self._hypotheses: list[dict[str, Any]] = []  # Track generated hypotheses
         self._observations: list[str] = []  # Track collected observations
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -176,6 +186,7 @@ class Abductive:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Abductive reasoning method.
 
@@ -207,9 +218,10 @@ class Abductive:
             >>> assert "observations" in thought.metadata["stage"]
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Abductive reasoning method must be initialized before execution"
-            )
+            raise RuntimeError("Abductive reasoning method must be initialized before execution")
+
+        # Store execution context for sampling support
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -222,7 +234,7 @@ class Abductive:
         self._observations = observations
 
         # Create the initial observation thought
-        content = self._generate_observation_collection(observations, input_text)
+        content = await self._generate_observation_collection(observations, input_text)
 
         thought = ThoughtNode(
             type=ThoughtType.OBSERVATION,
@@ -253,6 +265,7 @@ class Abductive:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue abductive reasoning from a previous thought.
 
@@ -285,9 +298,7 @@ class Abductive:
             >>> assert hyp.step_number == 2
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Abductive reasoning method must be initialized before continuation"
-            )
+            raise RuntimeError("Abductive reasoning method must be initialized before continuation")
 
         # Increment step counter
         self._step_counter += 1
@@ -297,7 +308,7 @@ class Abductive:
         self._stage = stage_info["stage"]
 
         # Generate appropriate content based on stage
-        content = self._generate_stage_content(
+        content = await self._generate_stage_content(
             stage=self._stage,
             previous_thought=previous_thought,
             guidance=guidance,
@@ -379,7 +390,7 @@ class Abductive:
 
         return observations
 
-    def _generate_observation_collection(
+    async def _generate_observation_collection(
         self,
         observations: list[str],
         input_text: str,
@@ -395,13 +406,36 @@ class Abductive:
         """
         obs_list = "\n".join(f"  - {obs}" for obs in observations)
 
-        return (
-            f"Step {self._step_counter}: Observation Collection\n\n"
-            f"I need to find the best explanation for the following observations:\n\n"
-            f"{obs_list}\n\n"
-            f"Let me organize these observations systematically to identify patterns "
-            f"and key evidence that will help generate plausible hypotheses."
+        prompt = f"""I need to organize and analyze these observations systematically:
+
+{obs_list}
+
+Please analyze these observations to identify patterns and key evidence that will help generate plausible hypotheses. Structure your response as:
+1. Summary of observations
+2. Key patterns or themes identified
+3. Critical evidence to consider"""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Your task is to collect and organize observations methodically to prepare for hypothesis generation.
+Be thorough and systematic in your analysis."""
+
+        def fallback() -> str:
+            return (
+                f"I need to find the best explanation for the following observations:\n\n"
+                f"{obs_list}\n\n"
+                f"Let me organize these observations systematically to identify patterns "
+                f"and key evidence that will help generate plausible hypotheses."
+            )
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.5,
+            max_tokens=600,
         )
+
+        return f"Step {self._step_counter}: Observation Collection\n\n{result}"
 
     def _determine_next_stage(
         self,
@@ -481,7 +515,7 @@ class Abductive:
             },
         )
 
-    def _generate_stage_content(
+    async def _generate_stage_content(
         self,
         stage: str,
         previous_thought: ThoughtNode,
@@ -500,17 +534,17 @@ class Abductive:
             Generated content for this stage
         """
         if stage == "hypothesis_generation":
-            return self._generate_hypotheses(previous_thought, context)
+            return await self._generate_hypotheses(previous_thought, context)
         elif stage == "evaluation":
-            return self._generate_evaluation(previous_thought, context)
+            return await self._generate_evaluation(previous_thought, context)
         elif stage == "conclusion":
-            return self._generate_conclusion(previous_thought, context)
+            return await self._generate_conclusion(previous_thought, context)
         elif stage == "observations":
-            return self._generate_additional_observations(previous_thought, context)
+            return await self._generate_additional_observations(previous_thought, context)
         else:
-            return self._generate_continuation(previous_thought, guidance, context)
+            return await self._generate_continuation(previous_thought, guidance, context)
 
-    def _generate_hypotheses(
+    async def _generate_hypotheses(
         self,
         previous_thought: ThoughtNode,
         context: dict[str, Any] | None,
@@ -526,9 +560,46 @@ class Abductive:
         """
         # Extract observations
         observations = previous_thought.metadata.get("observations", self._observations)
+        obs_list = "\n".join(f"  - {obs}" for obs in observations)
 
-        # Generate candidate hypotheses (in real implementation, this would use LLM)
-        # For now, create a template structure
+        prompt = f"""Based on these observations:
+
+{obs_list}
+
+Generate 3-5 candidate hypotheses that could explain these observations. For each hypothesis:
+1. Provide a clear explanation
+2. List which evidence supports it
+3. Assess its likelihood (high/medium/low)
+
+Use abductive reasoning to find the most plausible explanations."""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Generate multiple candidate hypotheses that could explain the observations.
+Consider both common and alternative explanations.
+Be systematic and thorough."""
+
+        def fallback() -> str:
+            return self._generate_hypotheses_heuristic(observations)
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+        return f"Step {self._step_counter}: Hypothesis Generation\n\n{result}"
+
+    def _generate_hypotheses_heuristic(self, observations: list[str]) -> str:
+        """Generate hypotheses using heuristic approach.
+
+        Args:
+            observations: List of observations
+
+        Returns:
+            Formatted hypothesis content
+        """
         hypotheses = [
             {
                 "id": 1,
@@ -555,12 +626,11 @@ class Abductive:
         hyp_text = "\n\n".join(
             f"{h['explanation']}\n"
             f"  Likelihood: {h['likelihood']}\n"
-            f"  Supports: {', '.join(h['supports'])}"
+            f"  Supports: {', '.join(str(s) for s in h['supports'])}"
             for h in hypotheses
         )
 
         return (
-            f"Step {self._step_counter}: Hypothesis Generation\n\n"
             f"Based on the observations, I'll generate candidate explanations "
             f"that could account for the evidence:\n\n"
             f"{hyp_text}\n\n"
@@ -568,7 +638,7 @@ class Abductive:
             f"them against the evidence to determine which is most plausible."
         )
 
-    def _generate_evaluation(
+    async def _generate_evaluation(
         self,
         previous_thought: ThoughtNode,
         context: dict[str, Any] | None,
@@ -583,20 +653,48 @@ class Abductive:
             Content with hypothesis evaluation
         """
         hypotheses_count = len(self._hypotheses)
+        observations = previous_thought.metadata.get("observations", self._observations)
+        obs_list = "\n".join(f"  - {obs}" for obs in observations)
 
-        return (
-            f"Step {self._step_counter}: Hypothesis Evaluation\n\n"
-            f"Now I'll evaluate the {hypotheses_count} candidate hypotheses "
-            f"against the available evidence:\n\n"
-            f"Evaluation Criteria:\n"
-            f"  1. Explanatory power: How well does it explain ALL observations?\n"
-            f"  2. Simplicity: Is it the simplest explanation (Occam's Razor)?\n"
-            f"  3. Consistency: Does it align with known facts and principles?\n"
-            f"  4. Testability: Can we verify or falsify this explanation?\n\n"
-            f"Applying these criteria to each hypothesis to identify the best explanation..."
+        prompt = f"""Evaluate the generated hypotheses against these observations:
+
+{obs_list}
+
+Apply these evaluation criteria:
+1. Explanatory power: How well does it explain ALL observations?
+2. Simplicity: Is it the simplest explanation (Occam's Razor)?
+3. Consistency: Does it align with known facts and principles?
+4. Testability: Can we verify or falsify this explanation?
+
+Provide a systematic evaluation of each hypothesis."""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Evaluate each hypothesis critically and systematically against the evidence.
+Consider multiple criteria and provide balanced assessment."""
+
+        def fallback() -> str:
+            return (
+                f"Now I'll evaluate the {hypotheses_count} candidate hypotheses "
+                f"against the available evidence:\n\n"
+                f"Evaluation Criteria:\n"
+                f"  1. Explanatory power: How well does it explain ALL observations?\n"
+                f"  2. Simplicity: Is it the simplest explanation (Occam's Razor)?\n"
+                f"  3. Consistency: Does it align with known facts and principles?\n"
+                f"  4. Testability: Can we verify or falsify this explanation?\n\n"
+                f"Applying these criteria to each hypothesis to identify the best explanation..."
+            )
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=700,
         )
 
-    def _generate_conclusion(
+        return f"Step {self._step_counter}: Hypothesis Evaluation\n\n{result}"
+
+    async def _generate_conclusion(
         self,
         previous_thought: ThoughtNode,
         context: dict[str, Any] | None,
@@ -610,23 +708,52 @@ class Abductive:
         Returns:
             Content with final conclusion
         """
-        return (
-            f"Step {self._step_counter}: Best Explanation\n\n"
-            f"After evaluating all candidate hypotheses against the evidence, "
-            f"the most plausible explanation is:\n\n"
-            f"[Selected hypothesis with highest explanatory power and consistency]\n\n"
-            f"Reasoning:\n"
-            f"  - Accounts for all major observations\n"
-            f"  - Provides the simplest coherent explanation\n"
-            f"  - Aligns with established knowledge\n"
-            f"  - Can be tested or verified\n\n"
-            f"Confidence level: Moderate to high, depending on evidence completeness.\n\n"
-            f"Note: As with all abductive reasoning, this is the BEST explanation "
-            f"given current evidence, but not guaranteed to be the only or final truth. "
-            f"New evidence could lead to revising this conclusion."
+        observations = previous_thought.metadata.get("observations", self._observations)
+        obs_list = "\n".join(f"  - {obs}" for obs in observations)
+
+        prompt = f"""Based on the evaluation of hypotheses for these observations:
+
+{obs_list}
+
+Select the best explanation and provide:
+1. The most plausible hypothesis
+2. Why it's the best explanation
+3. How it accounts for the observations
+4. Confidence level and any caveats
+
+Remember: This is abductive reasoning - the best explanation given current evidence, not absolute truth."""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Select the hypothesis with the highest explanatory power and present it clearly.
+Be honest about confidence levels and limitations."""
+
+        def fallback() -> str:
+            return (
+                "After evaluating all candidate hypotheses against the evidence, "
+                "the most plausible explanation is:\n\n"
+                "[Selected hypothesis with highest explanatory power and consistency]\n\n"
+                "Reasoning:\n"
+                "  - Accounts for all major observations\n"
+                "  - Provides the simplest coherent explanation\n"
+                "  - Aligns with established knowledge\n"
+                "  - Can be tested or verified\n\n"
+                "Confidence level: Moderate to high, depending on evidence completeness.\n\n"
+                "Note: As with all abductive reasoning, this is the BEST explanation "
+                "given current evidence, but not guaranteed to be the only or final truth. "
+                "New evidence could lead to revising this conclusion."
+            )
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.5,
+            max_tokens=600,
         )
 
-    def _generate_additional_observations(
+        return f"Step {self._step_counter}: Best Explanation\n\n{result}"
+
+    async def _generate_additional_observations(
         self,
         previous_thought: ThoughtNode,
         context: dict[str, Any] | None,
@@ -646,17 +773,46 @@ class Abductive:
             if isinstance(new_evidence, str):
                 new_evidence = [new_evidence]
 
-        evidence_text = "\n".join(f"  - {ev}" for ev in new_evidence) if new_evidence else "  - [New observation]"
-
-        return (
-            f"Step {self._step_counter}: Additional Observations\n\n"
-            f"New evidence has emerged that may affect our hypotheses:\n\n"
-            f"{evidence_text}\n\n"
-            f"I'll incorporate this into the analysis and may need to revise "
-            f"earlier hypotheses based on this new information."
+        evidence_text = (
+            "\n".join(f"  - {ev}" for ev in new_evidence)
+            if new_evidence
+            else "  - [New observation]"
         )
 
-    def _generate_continuation(
+        prompt = f"""New evidence has emerged:
+
+{evidence_text}
+
+Previous observations: {", ".join(self._observations)}
+
+Analyze how this new evidence affects the existing hypotheses:
+1. Does it support or contradict any hypotheses?
+2. Does it require generating new hypotheses?
+3. What impact does it have on our confidence in current explanations?"""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Analyze how new evidence affects existing hypotheses.
+Be willing to revise earlier conclusions based on new information."""
+
+        def fallback() -> str:
+            return (
+                f"New evidence has emerged that may affect our hypotheses:\n\n"
+                f"{evidence_text}\n\n"
+                f"I'll incorporate this into the analysis and may need to revise "
+                f"earlier hypotheses based on this new information."
+            )
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=500,
+        )
+
+        return f"Step {self._step_counter}: Additional Observations\n\n{result}"
+
+    async def _generate_continuation(
         self,
         previous_thought: ThoughtNode,
         guidance: str | None,
@@ -674,9 +830,30 @@ class Abductive:
         """
         guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
 
-        return (
-            f"Step {self._step_counter}: Continuing Analysis\n\n"
-            f"Building on the previous step, I'll continue the abductive reasoning "
-            f"process to refine our understanding and move toward the best "
-            f"explanation.{guidance_text}"
+        prompt = f"""Continue the abductive reasoning process.
+
+Previous stage: {previous_thought.metadata.get("stage", "unknown")}
+{guidance_text}
+
+Based on the previous analysis, what should be the next step in finding the best explanation?"""
+
+        system_prompt = """You are performing abductive reasoning - inference to the best explanation.
+Continue the reasoning process logically from the previous step.
+Focus on moving toward identifying the most plausible explanation."""
+
+        def fallback() -> str:
+            return (
+                f"Building on the previous step, I'll continue the abductive reasoning "
+                f"process to refine our understanding and move toward the best "
+                f"explanation.{guidance_text}"
+            )
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=400,
         )
+
+        return f"Step {self._step_counter}: Continuing Analysis\n\n{result}"

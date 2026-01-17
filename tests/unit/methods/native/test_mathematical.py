@@ -226,10 +226,7 @@ class TestMathematicalReasoningExecution:
         """Test execute accepts and processes context parameter."""
         await math_method.initialize()
         problem = "Apply the Pythagorean theorem"
-        context: dict[str, Any] = {
-            "given": "a=3, b=4",
-            "find": "c"
-        }
+        context: dict[str, Any] = {"given": "a=3, b=4", "find": "c"}
         result = await math_method.execute(session, problem, context=context)
 
         assert result is not None
@@ -403,7 +400,7 @@ class TestConfigurationOptions:
         context: dict[str, Any] = {
             "rigor_level": "medium",
             "allow_approximation": True,
-            "precision": 0.001
+            "precision": 0.001,
         }
         result = await math_method.execute(session, problem, context=context)
 
@@ -775,12 +772,14 @@ class TestEdgeCases:
     async def test_very_long_problem(self, math_method, session):
         """Test handling of very long problem statements."""
         await math_method.initialize()
-        problem = " ".join([
-            "Given a complex mathematical system with multiple constraints,",
-            "variables x, y, z subject to the conditions x^2 + y^2 = z^2,",
-            "x > 0, y > 0, z > 0, and the additional requirement that x + y + z = 12,",
-            "prove that there exists at least one solution satisfying all constraints."
-        ])
+        problem = " ".join(
+            [
+                "Given a complex mathematical system with multiple constraints,",
+                "variables x, y, z subject to the conditions x^2 + y^2 = z^2,",
+                "x > 0, y > 0, z > 0, and the additional requirement that x + y + z = 12,",
+                "prove that there exists at least one solution satisfying all constraints.",
+            ]
+        )
         result = await math_method.execute(session, problem)
 
         assert result is not None
@@ -803,7 +802,7 @@ class TestEdgeCases:
         problem = "Build a proof graph"
         first = await math_method.execute(session, problem)
         second = await math_method.continue_reasoning(session, first)
-        third = await math_method.continue_reasoning(session, second)
+        await math_method.continue_reasoning(session, second)
 
         # Verify graph structure
         assert session.graph.node_count == 3
@@ -858,13 +857,11 @@ class TestEdgeCases:
         thoughts = [await math_method.execute(session, problem)]
 
         for _ in range(5):
-            thoughts.append(
-                await math_method.continue_reasoning(session, thoughts[-1])
-            )
+            thoughts.append(await math_method.continue_reasoning(session, thoughts[-1]))
 
         # Verify chain
         for i in range(1, len(thoughts)):
-            assert thoughts[i].parent_id == thoughts[i-1].id
+            assert thoughts[i].parent_id == thoughts[i - 1].id
             assert thoughts[i].step_number == i + 1
             assert thoughts[i].depth == i
 

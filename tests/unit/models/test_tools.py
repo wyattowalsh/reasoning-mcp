@@ -17,7 +17,6 @@ Each model is tested for:
 """
 
 from datetime import datetime
-from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -45,7 +44,6 @@ from reasoning_mcp.models.tools import (
     ThoughtOutput,
     ValidationOutput,
 )
-
 
 # ============================================================================
 # Fixtures

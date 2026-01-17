@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 AUTO_THINK_METADATA = RouterMetadata(
     identifier=RouterIdentifier.AUTO_THINK,
@@ -49,19 +48,25 @@ class AutoThink:
         self._initialized = True
         self._query_complexity = 0.0
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route query to appropriate method based on complexity."""
         if not self._initialized:
             raise RuntimeError("AutoThink must be initialized before routing")
 
         # Simple complexity heuristic
         complexity_indicators = [
-            "calculate", "compute", "solve", "analyze", "explain",
-            "why", "how", "compare", "evaluate", "prove"
+            "calculate",
+            "compute",
+            "solve",
+            "analyze",
+            "explain",
+            "why",
+            "how",
+            "compare",
+            "evaluate",
+            "prove",
         ]
-        
+
         query_lower = query.lower()
         complexity_score = sum(1 for ind in complexity_indicators if ind in query_lower)
         self._query_complexity = min(1.0, complexity_score / 5)
@@ -74,9 +79,7 @@ class AutoThink:
         else:
             return MethodIdentifier.TREE_OF_THOUGHTS  # Complex, multi-path
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate token budget based on query complexity."""
         if not self._initialized:
             raise RuntimeError("AutoThink must be initialized")

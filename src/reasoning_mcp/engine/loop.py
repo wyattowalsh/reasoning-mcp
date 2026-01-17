@@ -7,8 +7,12 @@ and iteration limits.
 
 from __future__ import annotations
 
+import operator
+import re
 from datetime import datetime
 from typing import Any
+
+import structlog
 
 from reasoning_mcp.engine.executor import (
     ExecutionContext,
@@ -16,7 +20,20 @@ from reasoning_mcp.engine.executor import (
     StageResult,
 )
 from reasoning_mcp.models.core import PipelineStageType
-from reasoning_mcp.models.pipeline import Accumulator, Condition, LoopPipeline
+from reasoning_mcp.models.pipeline import Accumulator, Condition, LoopPipeline, Pipeline
+from reasoning_mcp.telemetry.instrumentation import traced_executor
+
+logger = structlog.get_logger(__name__)
+
+# Safe operator mapping for condition evaluation
+_SAFE_OPERATORS = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    ">": operator.gt,
+    "<": operator.lt,
+    ">=": operator.ge,
+    "<=": operator.le,
+}
 
 
 class LoopExecutor(PipelineExecutor):
@@ -68,6 +85,7 @@ class LoopExecutor(PipelineExecutor):
         self.pipeline = pipeline
         self._body_executor: PipelineExecutor | None = None
 
+    @traced_executor("loop.execute")
     async def execute(self, context: ExecutionContext) -> StageResult:
         """Execute the loop pipeline.
 
@@ -118,8 +136,13 @@ class LoopExecutor(PipelineExecutor):
                     )
                     if not condition_met:
                         break
-                except Exception:
+                except (ValueError, TypeError, KeyError) as e:
                     # If condition evaluation fails, stop the loop
+                    logger.warning(
+                        "loop_condition_evaluation_failed",
+                        error=str(e),
+                        iteration=iteration,
+                    )
                     break
 
             iteration += 1
@@ -166,6 +189,11 @@ class LoopExecutor(PipelineExecutor):
 
                 # Update context variables with iteration results
                 context.variables.update(iter_result.output_data)
+                # Update input_data for the next iteration
+                context.input_data.update(iter_result.output_data)
+                if "content" in iter_result.output_data:
+                    context.input_data["input"] = iter_result.output_data["content"]
+                context.input_data["thought_ids"] = iter_result.output_thought_ids
 
                 # Check should_continue for result-based termination (not condition)
                 if not iter_result.should_continue:
@@ -279,8 +307,13 @@ class LoopExecutor(PipelineExecutor):
                 # (opposite of "until" semantics where we stop when condition is true)
                 return condition_met
 
-            except Exception:
+            except (ValueError, TypeError, KeyError) as e:
                 # If condition evaluation fails, stop the loop
+                logger.warning(
+                    "loop_should_continue_evaluation_failed",
+                    error=str(e),
+                    condition=str(self.pipeline.condition),
+                )
                 return False
 
         # No condition specified, continue until max iterations
@@ -387,6 +420,12 @@ class LoopExecutor(PipelineExecutor):
     ) -> bool:
         """Evaluate a condition against current variables.
 
+        Uses a safe expression parser that only supports:
+        - Simple comparisons (==, !=, >, <, >=, <=)
+        - Boolean logic (and, or, not)
+        - Existence checks ("field exists")
+        - Variable truthiness checks
+
         Args:
             condition: Condition to evaluate
             variables: Current variable values
@@ -400,21 +439,11 @@ class LoopExecutor(PipelineExecutor):
 
             # Handle threshold-based comparisons
             if condition.threshold is not None:
-                operator = condition.operator
+                op_str = condition.operator
                 threshold = condition.threshold
-
-                if operator == ">":
-                    return field_value > threshold
-                elif operator == ">=":
-                    return field_value >= threshold
-                elif operator == "<":
-                    return field_value < threshold
-                elif operator == "<=":
-                    return field_value <= threshold
-                elif operator == "==":
-                    return field_value == threshold
-                elif operator == "!=":
-                    return field_value != threshold
+                op_func = _SAFE_OPERATORS.get(op_str)
+                if op_func:
+                    return bool(op_func(field_value, threshold))
 
             # Handle boolean comparisons
             if condition.operator == "==":
@@ -422,20 +451,141 @@ class LoopExecutor(PipelineExecutor):
             elif condition.operator == "!=":
                 return not bool(field_value)
 
-        # Fallback to expression evaluation
-        # For now, use simple eval (in production, use a safe expression evaluator)
-        try:
-            # Create a safe namespace with only the variables
-            namespace = {**variables}
-            result = eval(condition.expression, {"__builtins__": {}}, namespace)
-            return bool(result)
-        except Exception:
-            # If evaluation fails, return False
+        # Fall back to safe expression evaluation
+        return self._safe_evaluate_expression(condition.expression, variables)
+
+    def _safe_evaluate_expression(
+        self,
+        expression: str,
+        variables: dict[str, Any],
+    ) -> bool:
+        """Safely evaluate a condition expression without using eval().
+
+        Supports:
+        - Simple comparisons: "x > 5", "name == 'test'"
+        - Boolean logic: "x > 5 and y < 10", "a or b"
+        - Negation: "not done"
+        - Existence checks: "field exists"
+        - Variable truthiness: "is_complete"
+
+        Args:
+            expression: Expression string to evaluate
+            variables: Available variables for evaluation
+
+        Returns:
+            Boolean result of the expression
+        """
+        expression = expression.strip()
+
+        # Handle existence checks
+        if " exists" in expression:
+            var_name = expression.replace(" exists", "").strip()
+            return var_name in variables
+
+        # Handle logical operators (split on 'and' first, then 'or')
+        if " and " in expression:
+            parts = expression.split(" and ")
+            return all(self._safe_evaluate_expression(part.strip(), variables) for part in parts)
+
+        if " or " in expression:
+            parts = expression.split(" or ")
+            return any(self._safe_evaluate_expression(part.strip(), variables) for part in parts)
+
+        # Handle negation
+        if expression.startswith("not "):
+            inner_expr = expression[4:].strip()
+            return not self._safe_evaluate_expression(inner_expr, variables)
+
+        # Handle simple comparison expressions
+        return self._evaluate_simple_comparison(expression, variables)
+
+    def _evaluate_simple_comparison(
+        self,
+        expression: str,
+        variables: dict[str, Any],
+    ) -> bool:
+        """Evaluate a simple comparison expression.
+
+        Args:
+            expression: Simple comparison like "x > 5" or "name == 'test'"
+            variables: Available variables
+
+        Returns:
+            Boolean result
+        """
+        # Pattern: variable operator value
+        pattern = r"(\w+)\s*(==|!=|>=|<=|>|<)\s*(.+)"
+        match = re.match(pattern, expression.strip())
+
+        if not match:
+            # Try to evaluate as direct variable (truthy check)
+            var_name = expression.strip()
+            if var_name in variables:
+                return bool(variables[var_name])
             return False
+
+        var_name, op_str, value_str = match.groups()
+
+        # Check if variable exists
+        if var_name not in variables:
+            return False
+
+        var_value = variables[var_name]
+        value_str = value_str.strip()
+
+        # Parse the comparison value safely
+        compare_value = self._parse_literal(value_str)
+
+        # Apply operator
+        op_func = _SAFE_OPERATORS.get(op_str)
+        if op_func:
+            try:
+                return bool(op_func(var_value, compare_value))
+            except (TypeError, ValueError):
+                return False
+        return False
+
+    def _parse_literal(self, value_str: str) -> Any:
+        """Parse a literal value from string (no eval).
+
+        Args:
+            value_str: String representation of a value
+
+        Returns:
+            Parsed value (bool, None, int, float, or string)
+        """
+        value_str = value_str.strip()
+
+        # Boolean literals
+        if value_str.lower() == "true":
+            return True
+        if value_str.lower() == "false":
+            return False
+
+        # None literal
+        if value_str.lower() == "none":
+            return None
+
+        # String literals (quoted)
+        if (value_str.startswith('"') and value_str.endswith('"')) or (
+            value_str.startswith("'") and value_str.endswith("'")
+        ):
+            return value_str[1:-1]
+
+        # Try numeric conversion
+        try:
+            if "." in value_str:
+                return float(value_str)
+            return int(value_str)
+        except ValueError:
+            pass
+
+        # Return as-is (string)
+        return value_str
 
     async def execute_stage(
         self,
-        stage: "Pipeline",
+        stage: Pipeline,
         context: ExecutionContext,
     ) -> StageResult:
         """Execute a single pipeline stage.
@@ -471,7 +621,7 @@ class LoopExecutor(PipelineExecutor):
             "This will be implemented when the full executor infrastructure is in place."
         )
 
-    async def validate(self, stage: "Pipeline") -> list[str]:
+    async def validate(self, stage: Pipeline) -> list[str]:
         """Validate the loop pipeline configuration.
 
         Checks that the loop has a body and valid iteration limits.
@@ -482,7 +632,6 @@ class LoopExecutor(PipelineExecutor):
         Returns:
             List of validation error messages (empty if valid)
         """
-        from reasoning_mcp.models.pipeline import Pipeline
 
         errors = []
 

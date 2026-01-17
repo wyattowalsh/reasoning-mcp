@@ -199,6 +199,11 @@ class SessionMetrics(BaseModel):
         default_factory=datetime.now,
         description="Timestamp of the last metrics update",
     )
+    elicitations_made: int = Field(
+        default=0,
+        ge=0,
+        description="Number of elicitations (user interactions) made during the session",
+    )
 
     def update_from_thought(self, thought: ThoughtNode) -> None:
         """Update metrics based on a new thought.
@@ -263,9 +268,7 @@ class SessionMetrics(BaseModel):
                 self.average_quality = thought.quality_score
             else:
                 # Count thoughts with quality scores
-                quality_count = sum(
-                    1 for method_count in self.methods_used.values()
-                )
+                quality_count = sum(1 for method_count in self.methods_used.values())
                 self.average_quality = (
                     self.average_quality * (quality_count - 1) + thought.quality_score
                 ) / quality_count
@@ -282,7 +285,8 @@ class SessionMetrics(BaseModel):
         if thought.type == ThoughtType.BRANCH and thought.branch_id is not None:
             # Check if this is a new branch
             branch_thoughts = sum(
-                1 for t_type, count in self.thought_types.items()
+                1
+                for t_type, count in self.thought_types.items()
                 if t_type == str(ThoughtType.BRANCH)
             )
             if branch_thoughts <= self.branches_created + 1:
@@ -684,7 +688,6 @@ class Session(BaseModel):
             >>> assert session.metrics.total_edges == 1  # Edge from parent to child
         """
         # Track edge count before adding
-        edge_count_before = self.graph.edge_count
 
         # Add to graph
         self.graph.add_thought(thought)
@@ -698,9 +701,7 @@ class Session(BaseModel):
 
         return self
 
-    def get_thoughts_by_method(
-        self, method: MethodIdentifier
-    ) -> list[ThoughtNode]:
+    def get_thoughts_by_method(self, method: MethodIdentifier) -> list[ThoughtNode]:
         """Get all thoughts created by a specific reasoning method.
 
         Args:
@@ -729,11 +730,7 @@ class Session(BaseModel):
             >>> assert len(cot_thoughts) == 1
             >>> assert cot_thoughts[0].id == "t1"
         """
-        return [
-            node
-            for node in self.graph.nodes.values()
-            if node.method_id == method
-        ]
+        return [node for node in self.graph.nodes.values() if node.method_id == method]
 
     def get_thoughts_by_type(self, thought_type: ThoughtType) -> list[ThoughtNode]:
         """Get all thoughts of a specific type.
@@ -767,11 +764,7 @@ class Session(BaseModel):
             >>> assert len(branches) == 1
             >>> assert branches[0].id == "t2"
         """
-        return [
-            node
-            for node in self.graph.nodes.values()
-            if node.type == thought_type
-        ]
+        return [node for node in self.graph.nodes.values() if node.type == thought_type]
 
     def get_recent_thoughts(self, n: int = 5) -> list[ThoughtNode]:
         """Get the n most recent thoughts by creation time.

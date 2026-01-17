@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 RRM_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.RRM,
@@ -59,26 +58,26 @@ class Rrm:
 
         # Deliberative verification process
         deliberation = self._deliberate(solution)
-        
+
         verification = (
             "Reward Reasoning Verification:\n\n"
             f"Deliberation depth: {self._deliberation_depth}\n\n"
             f"{deliberation}\n\n"
             "Final reward assessment: POSITIVE"
         )
-        
+
         return 0.89, verification
 
     def _deliberate(self, solution: str) -> str:
         """Perform deliberative reasoning."""
         deliberation = ""
-        
+
         for i in range(self._deliberation_depth):
-            deliberation += f"Round {i+1} deliberation:\n"
-            deliberation += f"  - Considering aspect {i+1}: Quality assessment\n"
-            deliberation += f"  - Reasoning: Solution shows logical structure\n"
-            deliberation += f"  - Intermediate reward: +{0.3 * (i+1):.1f}\n\n"
-        
+            deliberation += f"Round {i + 1} deliberation:\n"
+            deliberation += f"  - Considering aspect {i + 1}: Quality assessment\n"
+            deliberation += "  - Reasoning: Solution shows logical structure\n"
+            deliberation += f"  - Intermediate reward: +{0.3 * (i + 1):.1f}\n\n"
+
         return deliberation
 
     async def deliberate_reward(
@@ -103,7 +102,7 @@ class Rrm:
             "  - No contradictions found\n"
             "  - Final reward: 0.87\n"
         )
-        
+
         return 0.87, rationale
 
     async def score_steps(
@@ -115,20 +114,20 @@ class Rrm:
 
         scores = []
         cumulative_quality = 0.0
-        
+
         for i, step in enumerate(steps):
             # Each step builds on previous
             step_quality = 0.7
-            
+
             if len(step) > 10:
                 step_quality += 0.1
             if any(word in step.lower() for word in ["because", "therefore", "thus"]):
                 step_quality += 0.1
-            
+
             # Cumulative bonus from previous steps
             cumulative_quality = (cumulative_quality + step_quality) / 2
             scores.append(min(1.0, cumulative_quality + 0.1 * i))
-        
+
         return scores
 
     async def health_check(self) -> bool:

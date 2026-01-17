@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
+
+if TYPE_CHECKING:
+    from reasoning_mcp.models import Session, ThoughtNode
 
 
 class TestMethodMetadata:
@@ -369,6 +372,8 @@ class TestReasoningMethodProtocol:
         """Test that a valid implementation satisfies the protocol."""
 
         class ValidMethod:
+            streaming_context = None
+
             @property
             def identifier(self) -> str:
                 return "test"
@@ -388,16 +393,25 @@ class TestReasoningMethodProtocol:
             async def initialize(self) -> None:
                 pass
 
-            async def execute(self, session, input_text, *, context=None):
+            async def execute(self, session, input_text, *, context=None, execution_context=None):
                 pass
 
             async def continue_reasoning(
-                self, session, previous_thought, *, guidance=None, context=None
+                self,
+                session,
+                previous_thought,
+                *,
+                guidance=None,
+                context=None,
+                execution_context=None,
             ):
                 pass
 
             async def health_check(self) -> bool:
                 return True
+
+            async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+                pass
 
         method = ValidMethod()
         assert isinstance(method, ReasoningMethod)
@@ -678,6 +692,8 @@ class TestReasoningMethodProtocol:
         """
 
         class MethodInsteadOfProperty:
+            streaming_context = None
+
             def identifier(self) -> str:  # Should be @property, but callable works
                 return "test"
 
@@ -696,16 +712,25 @@ class TestReasoningMethodProtocol:
             async def initialize(self) -> None:
                 pass
 
-            async def execute(self, session, input_text, *, context=None):
+            async def execute(self, session, input_text, *, context=None, execution_context=None):
                 pass
 
             async def continue_reasoning(
-                self, session, previous_thought, *, guidance=None, context=None
+                self,
+                session,
+                previous_thought,
+                *,
+                guidance=None,
+                context=None,
+                execution_context=None,
             ):
                 pass
 
             async def health_check(self) -> bool:
                 return True
+
+            async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+                pass
 
         method = MethodInsteadOfProperty()
         # This passes because runtime_checkable only checks attribute existence
@@ -716,6 +741,8 @@ class TestReasoningMethodProtocol:
         """Test that implementations can have additional methods beyond the protocol."""
 
         class ExtendedMethod:
+            streaming_context = None
+
             @property
             def identifier(self) -> str:
                 return "test"
@@ -735,16 +762,25 @@ class TestReasoningMethodProtocol:
             async def initialize(self) -> None:
                 pass
 
-            async def execute(self, session, input_text, *, context=None):
+            async def execute(self, session, input_text, *, context=None, execution_context=None):
                 pass
 
             async def continue_reasoning(
-                self, session, previous_thought, *, guidance=None, context=None
+                self,
+                session,
+                previous_thought,
+                *,
+                guidance=None,
+                context=None,
+                execution_context=None,
             ):
                 pass
 
             async def health_check(self) -> bool:
                 return True
+
+            async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+                pass
 
             # Additional methods
             def extra_method(self) -> str:
@@ -761,9 +797,10 @@ class TestReasoningMethodProtocol:
 
     def test_valid_implementation_with_type_annotations(self):
         """Test that proper type annotations work with the protocol."""
-        from reasoning_mcp.models import Session, ThoughtNode
 
         class TypedMethod:
+            streaming_context = None
+
             @property
             def identifier(self) -> str:
                 return "test"
@@ -789,6 +826,7 @@ class TestReasoningMethodProtocol:
                 input_text: str,
                 *,
                 context: dict[str, Any] | None = None,
+                execution_context=None,
             ) -> ThoughtNode:
                 # This would normally return a real ThoughtNode
                 raise NotImplementedError
@@ -800,12 +838,16 @@ class TestReasoningMethodProtocol:
                 *,
                 guidance: str | None = None,
                 context: dict[str, Any] | None = None,
+                execution_context=None,
             ) -> ThoughtNode:
                 # This would normally return a real ThoughtNode
                 raise NotImplementedError
 
             async def health_check(self) -> bool:
                 return True
+
+            async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+                pass
 
         method = TypedMethod()
         assert isinstance(method, ReasoningMethod)

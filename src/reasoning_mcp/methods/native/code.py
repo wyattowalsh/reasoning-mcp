@@ -15,12 +15,13 @@ from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtT
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
-from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 
 
-class CodeReasoning:
+class CodeReasoning(ReasoningMethodBase):
     """Code-specialized reasoning method for analysis and debugging.
 
     This method implements structured code reasoning with the following phases:
@@ -43,6 +44,8 @@ class CodeReasoning:
         ... )
         >>> assert thought.type == ThoughtType.INITIAL
     """
+
+    _use_sampling: bool = True
 
     @property
     def identifier(self) -> str:
@@ -79,6 +82,7 @@ class CodeReasoning:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute code reasoning on the input.
 
@@ -96,6 +100,7 @@ class CodeReasoning:
                 - language: Programming language (auto-detected if not provided)
                 - error_message: Error or exception text
                 - focus: What to focus on (e.g., "performance", "security")
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode containing the analysis results
@@ -111,6 +116,9 @@ class CodeReasoning:
         """
         context = context or {}
 
+        # Check if sampling is available
+        use_sampling = execution_context and execution_context.can_sample and self._use_sampling
+
         # Extract error message if present in input
         code, error_message = self._extract_code_and_error(input_text)
 
@@ -124,54 +132,77 @@ class CodeReasoning:
         # Get analysis focus
         focus = context.get("focus", "correctness")
 
-        # Phase 1: Analyze code structure
-        structure_analysis = self._analyze_structure(code, language)
-
-        # Phase 2: Identify patterns
-        patterns = self._identify_patterns(code, language)
-
-        # Phase 3: Detect issues
-        issues = self._detect_issues(code, language, error_message)
-
-        # Phase 4: Trace execution flow (conceptual)
-        flow_trace = self._trace_execution_flow(code, language)
-
-        # Phase 5: Suggest fixes or improvements
-        suggestions = self._suggest_fixes(code, issues, focus, language)
-
-        # Build comprehensive analysis content
-        analysis_parts = [
-            f"# Code Analysis ({language})",
-            "",
-            "## Structure Analysis",
-            structure_analysis,
-            "",
-            "## Patterns Identified",
-            patterns,
-            "",
-            "## Issues Detected",
-            issues,
-            "",
-            "## Execution Flow",
-            flow_trace,
-            "",
-            "## Suggestions",
-            suggestions,
-        ]
-
-        if error_message:
-            analysis_parts.insert(
-                2,
-                f"## Error Context\n```\n{error_message}\n```\n",
+        # Generate content using sampling or placeholder
+        if use_sampling:
+            content = await self._sample_code_analysis(
+                code, language, error_message, focus, execution_context
             )
+        else:
+            # Phase 1: Analyze code structure
+            structure_analysis = self._analyze_structure(code, language)
 
-        content = "\n".join(analysis_parts)
+            # Phase 2: Identify patterns
+            patterns = self._identify_patterns(code, language)
+
+            # Phase 3: Detect issues
+            issues = self._detect_issues(code, language, error_message)
+
+            # Phase 4: Trace execution flow (conceptual)
+            flow_trace = self._trace_execution_flow(code, language)
+
+            # Phase 5: Suggest fixes or improvements
+            suggestions = self._suggest_fixes(code, issues, focus, language)
+
+            # Build comprehensive analysis content
+            analysis_parts = [
+                f"# Code Analysis ({language})",
+                "",
+                "## Structure Analysis",
+                structure_analysis,
+                "",
+                "## Patterns Identified",
+                patterns,
+                "",
+                "## Issues Detected",
+                issues,
+                "",
+                "## Execution Flow",
+                flow_trace,
+                "",
+                "## Suggestions",
+                suggestions,
+            ]
+
+            if error_message:
+                analysis_parts.insert(
+                    2,
+                    f"## Error Context\n```\n{error_message}\n```\n",
+                )
+
+            content = "\n".join(analysis_parts)
 
         # Calculate confidence based on issue detection
-        confidence = self._calculate_confidence(issues, error_message)
+        if use_sampling:
+            # Use default confidence for sampled content
+            confidence = 0.85
+            quality_score = 0.9
+        else:
+            confidence = self._calculate_confidence(issues, error_message)
+            # Determine if issues were found for quality score
+            quality_score = 0.9 if "No critical issues" not in issues else 0.7
 
-        # Determine if issues were found for quality score
-        quality_score = 0.9 if "No critical issues" not in issues else 0.7
+        # Prepare metadata
+        metadata = {
+            "language": language,
+            "has_error": error_message is not None,
+            "focus": focus,
+            "issues_count": len(self._count_issues(content)) if not use_sampling else 0,
+            "supports_branching": True,
+        }
+
+        # Add sampled flag if execution_context was provided
+        if execution_context is not None:
+            metadata["sampled"] = use_sampling
 
         # Create the thought node
         thought = ThoughtNode(
@@ -183,13 +214,7 @@ class CodeReasoning:
             quality_score=quality_score,
             step_number=1,
             depth=0,
-            metadata={
-                "language": language,
-                "has_error": error_message is not None,
-                "focus": focus,
-                "issues_count": len(self._count_issues(issues)),
-                "supports_branching": True,
-            },
+            metadata=metadata,
         )
 
         return thought
@@ -201,6 +226,7 @@ class CodeReasoning:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -245,22 +271,26 @@ class CodeReasoning:
         ]
 
         if guidance:
-            content_parts.extend([
-                f"Guidance: {guidance}",
-                "",
-            ])
+            content_parts.extend(
+                [
+                    f"Guidance: {guidance}",
+                    "",
+                ]
+            )
 
-        content_parts.extend([
-            f"## Focus Area: {focus.title()}",
-            f"This continuation explores {focus}-specific improvements and considerations.",
-            "",
-            "## Additional Insights",
-            "Further analysis would examine:",
-            f"- {focus.title()}-specific patterns",
-            "- Trade-offs with other approaches",
-            "- Implementation complexity",
-            "- Testing requirements",
-        ])
+        content_parts.extend(
+            [
+                f"## Focus Area: {focus.title()}",
+                f"This continuation explores {focus}-specific improvements and considerations.",
+                "",
+                "## Additional Insights",
+                "Further analysis would examine:",
+                f"- {focus.title()}-specific patterns",
+                "- Trade-offs with other approaches",
+                "- Implementation complexity",
+                "- Testing requirements",
+            ]
+        )
 
         content = "\n".join(content_parts)
 
@@ -278,7 +308,9 @@ class CodeReasoning:
             depth=previous_thought.depth + 1,
             metadata={
                 "focus": focus,
-                "continuation_type": "branch" if thought_type == ThoughtType.BRANCH else "continuation",
+                "continuation_type": "branch"
+                if thought_type == ThoughtType.BRANCH
+                else "continuation",
             },
         )
 
@@ -291,6 +323,133 @@ class CodeReasoning:
             True if healthy (always True for this native method)
         """
         return True
+
+    # LLM Sampling methods
+
+    async def _sample_code_analysis(
+        self,
+        code: str,
+        language: str,
+        error_message: str | None,
+        focus: str,
+        execution_context: Any,
+    ) -> str:
+        """Generate code analysis using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        actual code analysis rather than placeholder content.
+
+        Args:
+            code: The code to analyze
+            language: Programming language
+            error_message: Optional error message
+            focus: Analysis focus (correctness, performance, security, etc.)
+            execution_context: ExecutionContext for LLM sampling
+
+        Returns:
+            A formatted string containing the sampled code analysis
+        """
+        # Store execution context for _sample_with_fallback
+        self._execution_context = execution_context
+
+        system_prompt = f"""You are a code analysis expert specializing in {language}.
+Analyze code through these structured phases:
+1. Structure Analysis - Understand the code organization
+2. Pattern Identification - Detect common patterns and anti-patterns
+3. Issue Detection - Find potential bugs, errors, or problems
+4. Execution Flow - Follow the logical flow
+5. Fix Suggestions - Propose improvements or fixes
+
+Focus your analysis on: {focus}
+
+Format your response with clear markdown sections:
+# Code Analysis ({language})
+## Structure Analysis
+## Patterns Identified
+## Issues Detected
+## Execution Flow
+## Suggestions"""
+
+        user_prompt = f"""Analyze the following {language} code:
+
+```{language}
+{code}
+```"""
+
+        if error_message:
+            user_prompt += f"""
+
+Error context:
+```
+{error_message}
+```"""
+
+        user_prompt += f"""
+
+Provide a comprehensive code analysis focusing on {focus}. Be specific and actionable."""
+
+        def fallback_generator() -> str:
+            return self._generate_placeholder_analysis(code, language, error_message, focus)
+
+        return await self._sample_with_fallback(
+            user_prompt,
+            fallback_generator,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=2000,
+        )
+
+    def _generate_placeholder_analysis(
+        self,
+        code: str,
+        language: str,
+        error_message: str | None,
+        focus: str,
+    ) -> str:
+        """Generate placeholder analysis when sampling fails.
+
+        Args:
+            code: The code to analyze
+            language: Programming language
+            error_message: Optional error message
+            focus: Analysis focus
+
+        Returns:
+            A formatted placeholder analysis
+        """
+        # Use existing helper methods to generate placeholder
+        structure_analysis = self._analyze_structure(code, language)
+        patterns = self._identify_patterns(code, language)
+        issues = self._detect_issues(code, language, error_message)
+        flow_trace = self._trace_execution_flow(code, language)
+        suggestions = self._suggest_fixes(code, issues, focus, language)
+
+        analysis_parts = [
+            f"# Code Analysis ({language})",
+            "",
+            "## Structure Analysis",
+            structure_analysis,
+            "",
+            "## Patterns Identified",
+            patterns,
+            "",
+            "## Issues Detected",
+            issues,
+            "",
+            "## Execution Flow",
+            flow_trace,
+            "",
+            "## Suggestions",
+            suggestions,
+        ]
+
+        if error_message:
+            analysis_parts.insert(
+                2,
+                f"## Error Context\n```\n{error_message}\n```\n",
+            )
+
+        return "\n".join(analysis_parts)
 
     # Helper methods for analysis
 
@@ -321,7 +480,7 @@ class CodeReasoning:
             if pos != -1:
                 # Split at the actual position found in the text
                 code = input_text[:pos].strip()
-                error_message = input_text[pos + len(marker):].strip()
+                error_message = input_text[pos + len(marker) :].strip()
                 break
 
         return code, error_message
@@ -342,13 +501,58 @@ class CodeReasoning:
         # - Rust before JavaScript (both use let)
         # - Go before Python (both use import)
         detection_order = [
-            ("typescript", [r":\s*(string|number|boolean|any|void)\b", r"\binterface\s+\w+\s*{", r"\btype\s+\w+\s*="]),
+            (
+                "typescript",
+                [
+                    r":\s*(string|number|boolean|any|void)\b",
+                    r"\binterface\s+\w+\s*{",
+                    r"\btype\s+\w+\s*=",
+                ],
+            ),
             ("c++", [r"#include\s*<", r"\bnamespace\s+", r"std::", r"\btemplate\s*<", r"::\w+"]),
-            ("rust", [r"\bfn\s+\w+", r"\blet\s+mut\s+", r"\bimpl\s+", r"\b->\s*\w+", r"&mut\s+", r"&\w+"]),
-            ("go", [r"\bfunc\s+\w+\s*\(", r"\bpackage\s+\w+", r"\bimport\s+\(", r":=", r"\bfunc\s*\("]),
-            ("java", [r"\bpublic\s+class\s+", r"\bprivate\s+\w+\s+\w+", r"\bprotected\s+", r"\bvoid\s+\w+\s*\("]),
-            ("javascript", [r"\bfunction\s+\w+", r"\bconst\s+\w+\s*=", r"\blet\s+\w+\s*=", r"\bvar\s+", r"=>\s*[{(]"]),
-            ("python", [r"^\s*def\s+\w+\s*\(", r"^\s*class\s+\w+", r"^\s*from\s+\w+\s+import", r"^\s*import\s+\w+"]),
+            (
+                "rust",
+                [
+                    r"\bfn\s+\w+",
+                    r"\blet\s+mut\s+",
+                    r"\bimpl\s+",
+                    r"\b->\s*\w+",
+                    r"&mut\s+",
+                    r"&\w+",
+                ],
+            ),
+            (
+                "go",
+                [r"\bfunc\s+\w+\s*\(", r"\bpackage\s+\w+", r"\bimport\s+\(", r":=", r"\bfunc\s*\("],
+            ),
+            (
+                "java",
+                [
+                    r"\bpublic\s+class\s+",
+                    r"\bprivate\s+\w+\s+\w+",
+                    r"\bprotected\s+",
+                    r"\bvoid\s+\w+\s*\(",
+                ],
+            ),
+            (
+                "javascript",
+                [
+                    r"\bfunction\s+\w+",
+                    r"\bconst\s+\w+\s*=",
+                    r"\blet\s+\w+\s*=",
+                    r"\bvar\s+",
+                    r"=>\s*[{(]",
+                ],
+            ),
+            (
+                "python",
+                [
+                    r"^\s*def\s+\w+\s*\(",
+                    r"^\s*class\s+\w+",
+                    r"^\s*from\s+\w+\s+import",
+                    r"^\s*import\s+\w+",
+                ],
+            ),
         ]
 
         for language, lang_patterns in detection_order:
@@ -458,7 +662,9 @@ class CodeReasoning:
             var_match = re.search(r"['\"](\\w+)['\"]", error_message)
             if var_match:
                 var_name = var_match.group(1)
-                issues.append(f"🔴 **Undefined variable**: `{var_name}` is referenced but not defined")
+                issues.append(
+                    f"🔴 **Undefined variable**: `{var_name}` is referenced but not defined"
+                )
 
         # Check for division by zero potential
         if re.search(r"/\s*0(?!\d)|/\s*\w+(?=\s*#.*zero)", code):
@@ -466,13 +672,17 @@ class CodeReasoning:
 
         # Check for null/None reference potential
         if re.search(r"\.\w+(?!\s*\()|(?:null|None|nil)\.\w+", code):
-            issues.append("🟡 **Potential null reference**: Consider null/None checks before access")
+            issues.append(
+                "🟡 **Potential null reference**: Consider null/None checks before access"
+            )
 
         # Language-specific checks
         if language == "python":
             # Mutable default arguments
             if re.search(r"def\s+\w+\([^)]*=\s*(\[\]|\{\})", code):
-                issues.append("🟡 **Mutable default argument**: Use None and initialize in function body")
+                issues.append(
+                    "🟡 **Mutable default argument**: Use None and initialize in function body"
+                )
 
         if language in ("javascript", "typescript"):
             # == instead of ===
@@ -482,7 +692,9 @@ class CodeReasoning:
         # Check for magic numbers
         magic_numbers = re.findall(r"\b\d{2,}\b", code)
         if len(magic_numbers) > 3:
-            issues.append(f"🟡 **Magic numbers**: Consider using named constants ({len(magic_numbers)} found)")
+            issues.append(
+                f"🟡 **Magic numbers**: Consider using named constants ({len(magic_numbers)} found)"
+            )
 
         # Check for TODO/FIXME comments
         todos = re.findall(r"#\s*(TODO|FIXME|HACK|XXX)", code, re.IGNORECASE)
@@ -632,7 +844,7 @@ class CodeReasoning:
                 "Consider adding tests to validate the changes."
             )
 
-        return "\n\n".join(f"{i+1}. {s}" for i, s in enumerate(suggestions))
+        return "\n\n".join(f"{i + 1}. {s}" for i, s in enumerate(suggestions))
 
     def _calculate_confidence(self, issues: str, error_message: str | None) -> float:
         """Calculate confidence score based on analysis.
@@ -684,15 +896,17 @@ CODE_REASONING_METADATA = MethodMetadata(
     "Analyzes code structure, identifies patterns, detects issues, traces execution, "
     "and suggests improvements.",
     category=MethodCategory.HIGH_VALUE,
-    tags=frozenset({
-        "code",
-        "debugging",
-        "analysis",
-        "programming",
-        "development",
-        "bug-detection",
-        "refactoring",
-    }),
+    tags=frozenset(
+        {
+            "code",
+            "debugging",
+            "analysis",
+            "programming",
+            "development",
+            "bug-detection",
+            "refactoring",
+        }
+    ),
     complexity=6,  # Medium-high complexity
     supports_branching=True,  # Can branch for different fix approaches
     supports_revision=True,  # Can revise analysis

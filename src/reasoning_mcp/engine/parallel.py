@@ -3,18 +3,37 @@
 This module implements the ParallelExecutor which runs multiple pipeline stages
 concurrently using asyncio.gather and merges their results using configurable
 merge strategies.
+
+Timeout/Cancellation Features:
+    - Configurable timeout via ExecutionContext.timeout
+    - Graceful cancellation of all child tasks on timeout
+    - Proper propagation of asyncio.CancelledError
+    - Detailed error messages for timeout scenarios
+    - Task cleanup on cancellation to prevent resource leaks
 """
 
 from __future__ import annotations
 
 import asyncio
+import builtins
+from asyncio import CancelledError
 from collections import Counter
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.engine.executor import ExecutionContext, PipelineExecutor, StageResult
+from reasoning_mcp.engine.executor import (
+    DEFAULT_EXECUTION_TIMEOUT,
+    ExecutionContext,
+    PipelineExecutor,
+    StageResult,
+)
 from reasoning_mcp.models.core import PipelineStageType
 from reasoning_mcp.models.pipeline import MergeStrategy, ParallelPipeline, Pipeline
+from reasoning_mcp.telemetry.instrumentation import traced_executor
+
+if TYPE_CHECKING:
+    from reasoning_mcp.debug.collector import TraceCollector
+    from reasoning_mcp.streaming.context import StreamingContext
 
 
 class ParallelExecutor(PipelineExecutor):
@@ -48,21 +67,34 @@ class ParallelExecutor(PipelineExecutor):
         >>> merge = MergeStrategy(name="merge_dicts", aggregation="merge")
     """
 
-    def __init__(self, pipeline: ParallelPipeline, fail_fast: bool = False):
+    def __init__(
+        self,
+        pipeline: ParallelPipeline,
+        fail_fast: bool = False,
+        streaming_context: StreamingContext | None = None,
+        trace_collector: TraceCollector | None = None,
+    ):
         """Initialize the parallel executor.
 
         Args:
             pipeline: ParallelPipeline configuration to execute
             fail_fast: If True, stop execution on first error (default: False)
+            streaming_context: Optional streaming context for emitting real-time events
+            trace_collector: Optional trace collector for debugging and monitoring
         """
+
+        from reasoning_mcp.engine.executor import PipelineExecutor
+
         if not isinstance(pipeline, ParallelPipeline):
             raise TypeError(f"Expected ParallelPipeline, got {type(pipeline)}")
+        PipelineExecutor.__init__(self, streaming_context, trace_collector)
         self.pipeline = pipeline
         self.parallel_pipeline = pipeline
         self.fail_fast = fail_fast
 
+    @traced_executor("parallel.execute")
     async def execute(self, context: ExecutionContext) -> StageResult:
-        """Execute all branches in parallel and merge results.
+        """Execute all branches in parallel and merge results with timeout enforcement.
 
         Args:
             context: Execution context with session and state
@@ -71,17 +103,42 @@ class ParallelExecutor(PipelineExecutor):
             StageResult with merged outputs from all branches
 
         Raises:
-            Exception: If fail_fast is True and any branch fails
+            CancelledError: Re-raised to propagate cancellation to parent tasks
+
+        Note:
+            - Uses asyncio.timeout() for execution timeout enforcement
+            - Timeout is configurable via context.timeout (default: 300s)
+            - All child tasks are cancelled on timeout
+            - CancelledError is re-raised to allow graceful cancellation propagation
         """
         start_time = datetime.now()
         pipeline = self.parallel_pipeline
 
-        try:
-            # Execute branches in parallel with concurrency limit
-            results = await self.execute_parallel(
-                stages=pipeline.branches,
-                context=context,
+        # Determine timeout from context
+        timeout_seconds = context.timeout or DEFAULT_EXECUTION_TIMEOUT
+
+        # Start tracing span if collector is available
+        span_id = None
+        if hasattr(self, "_trace_collector") and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            span_id = self._trace_collector.start_span(
+                f"ParallelExecutor: {pipeline.name or pipeline.id}",
+                attributes={
+                    "pipeline_id": pipeline.id,
+                    "branches_count": len(pipeline.branches),
+                    "max_concurrency": pipeline.max_concurrency,
+                    "timeout_seconds": timeout_seconds,
+                },
             )
+
+        try:
+            async with asyncio.timeout(timeout_seconds):
+                # Execute branches in parallel with concurrency limit
+                results = await self.execute_parallel(
+                    stages=pipeline.branches,
+                    context=context,
+                )
 
             # Check for failures
             failed = [r for r in results if not r.success]
@@ -92,6 +149,7 @@ class ParallelExecutor(PipelineExecutor):
                     context.thought_ids,
                     error_msg,
                     start_time,
+                    span_id,
                 )
 
             # Merge successful results
@@ -102,6 +160,7 @@ class ParallelExecutor(PipelineExecutor):
                     context.thought_ids,
                     "All parallel branches failed",
                     start_time,
+                    span_id,
                 )
 
             # Apply merge strategy
@@ -135,6 +194,12 @@ class ParallelExecutor(PipelineExecutor):
                 merge_strategy=pipeline.merge_strategy.name,
             )
 
+            # End tracing span on success
+            if span_id and self._trace_collector:
+                from reasoning_mcp.models.debug import SpanStatus
+
+                self._trace_collector.end_span(span_id, SpanStatus.COMPLETED)
+
             return StageResult(
                 stage_id=pipeline.id,
                 stage_type=PipelineStageType.PARALLEL,
@@ -150,12 +215,47 @@ class ParallelExecutor(PipelineExecutor):
                 },
             )
 
+        except builtins.TimeoutError:
+            # Handle timeout - create detailed error result
+            end_time = datetime.now()
+            elapsed = (end_time - start_time).total_seconds()
+            error_msg = (
+                f"Parallel execution timed out after {elapsed:.2f}s "
+                f"(timeout: {timeout_seconds}s, pipeline: {pipeline.name or pipeline.id}, "
+                f"branches: {len(pipeline.branches)})"
+            )
+
+            # End tracing span on timeout
+            if span_id and self._trace_collector:
+                from reasoning_mcp.models.debug import SpanStatus
+
+                self._trace_collector.end_span(span_id, SpanStatus.FAILED)
+
+            return self._create_error_result(
+                pipeline.id,
+                context.thought_ids,
+                error_msg,
+                start_time,
+                span_id=None,  # Already ended above
+            )
+
+        except CancelledError:
+            # Re-raise CancelledError to propagate cancellation to parent tasks
+            # This ensures graceful shutdown when the pipeline is cancelled
+            if span_id and self._trace_collector:
+                from reasoning_mcp.models.debug import SpanStatus
+
+                self._trace_collector.end_span(span_id, SpanStatus.FAILED)
+
+            raise
+
         except Exception as e:
             return self._create_error_result(
                 pipeline.id,
                 context.thought_ids,
                 str(e),
                 start_time,
+                span_id,
             )
 
     async def execute_parallel(
@@ -182,23 +282,31 @@ class ParallelExecutor(PipelineExecutor):
         max_concurrency = self.parallel_pipeline.max_concurrency
         semaphore = asyncio.Semaphore(max_concurrency)
 
+        def clone_context(source: ExecutionContext) -> ExecutionContext:
+            return source.with_update(
+                input_data=dict(source.input_data),
+                variables=dict(source.variables),
+                thought_ids=list(source.thought_ids),
+                metadata=dict(source.metadata),
+            )
+
         async def execute_with_limit(stage: Pipeline) -> StageResult:
             """Execute a single stage with semaphore control."""
             async with semaphore:
-                return await self.execute_stage(stage, context)
+                return await self.execute_stage(stage, clone_context(context))
 
         # Execute all stages concurrently with concurrency limit
         tasks = [execute_with_limit(stage) for stage in stages]
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Convert exceptions to error results
-        final_results = []
+        final_results: list[StageResult] = []
         for i, result in enumerate(results):
-            if isinstance(result, Exception):
+            if isinstance(result, BaseException):
                 final_results.append(
                     StageResult(
                         stage_id=stages[i].id,
-                        stage_type=PipelineStageType.METHOD,
+                        stage_type=getattr(stages[i], "stage_type", PipelineStageType.METHOD),
                         success=False,
                         error=str(result),
                     )
@@ -375,7 +483,7 @@ class ParallelExecutor(PipelineExecutor):
             vote_key = "answer"
 
         # Count occurrences of each value
-        votes = Counter()
+        votes: Counter[str] = Counter()
         result_map: dict[str, dict[str, Any]] = {}
 
         for result in results:
@@ -400,6 +508,7 @@ class ParallelExecutor(PipelineExecutor):
         input_ids: list[str],
         error: str,
         start_time: datetime,
+        span_id: str | None = None,
     ) -> StageResult:
         """Create an error result for failed execution.
 
@@ -408,6 +517,7 @@ class ParallelExecutor(PipelineExecutor):
             input_ids: Input thought IDs
             error: Error message
             start_time: When execution started
+            span_id: Optional span ID to end on error
 
         Returns:
             StageResult representing the error
@@ -429,6 +539,12 @@ class ParallelExecutor(PipelineExecutor):
             metrics=metrics,
             error=error,
         )
+
+        # End tracing span on failure
+        if span_id and hasattr(self, "_trace_collector") and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            self._trace_collector.end_span(span_id, SpanStatus.FAILED)
 
         return StageResult(
             stage_id=stage_id,
@@ -469,3 +585,117 @@ class ParallelExecutor(PipelineExecutor):
             errors.append("Parallel pipeline requires a merge strategy")
 
         return errors
+
+
+class EnsembleParallelExecutor(ParallelExecutor):
+    """Specialized executor for ensemble reasoning with optimized result collection.
+
+    EnsembleParallelExecutor extends ParallelExecutor with ensemble-specific
+    optimizations including confidence aggregation, member result tracking,
+    and ensemble metadata collection. It maintains all capabilities of the
+    base ParallelExecutor while adding ensemble-aware result processing.
+
+    This executor is designed to be used by EnsembleReasoning method to
+    orchestrate multiple reasoning methods and collect their results for
+    voting and aggregation.
+
+    Examples:
+        Create an ensemble executor:
+        >>> ensemble = ParallelPipeline(
+        ...     name="ensemble_methods",
+        ...     branches=[cot_stage, tot_stage, reflection_stage],
+        ...     merge_strategy=MergeStrategy(name="collect"),
+        ...     max_concurrency=3
+        ... )
+        >>> executor = EnsembleParallelExecutor(ensemble)
+        >>> result = await executor.execute(context)
+
+        Access ensemble-specific metadata:
+        >>> assert "member_confidences" in result.metadata
+        >>> assert "member_execution_times" in result.metadata
+        >>> assert len(result.metadata["member_results"]) == 3
+    """
+
+    def __init__(
+        self,
+        pipeline: ParallelPipeline,
+        fail_fast: bool = False,
+        streaming_context: StreamingContext | None = None,
+        trace_collector: TraceCollector | None = None,
+    ):
+        """Initialize the ensemble parallel executor.
+
+        Args:
+            pipeline: ParallelPipeline configuration for ensemble execution
+            fail_fast: If True, stop execution on first error (default: False)
+            streaming_context: Optional streaming context for real-time events
+            trace_collector: Optional trace collector for debugging
+        """
+        super().__init__(pipeline, fail_fast, streaming_context, trace_collector)
+
+    @traced_executor("ensemble.execute")
+    async def execute(self, context: ExecutionContext) -> StageResult:
+        """Execute ensemble methods and collect detailed results.
+
+        This method extends the base ParallelExecutor.execute() to add
+        ensemble-specific result collection including confidence scores,
+        execution times, and member metadata.
+
+        Args:
+            context: Execution context with session and state
+
+        Returns:
+            StageResult with ensemble-optimized metadata including:
+            - member_results: List of individual member outputs
+            - member_confidences: Confidence scores from each member
+            - member_execution_times: Execution time for each member
+            - ensemble_ready: Flag indicating results are ready for voting
+
+        Examples:
+            >>> result = await executor.execute(context)
+            >>> assert result.success
+            >>> assert "ensemble_ready" in result.metadata
+            >>> assert len(result.metadata["member_results"]) == 3
+        """
+        # Execute base parallel logic
+        result = await super().execute(context)
+
+        if not result.success:
+            return result
+
+        # Enhance metadata with ensemble-specific information
+        member_results = []
+        member_confidences = []
+        member_execution_times = []
+
+        # Extract ensemble-specific data from output_data
+        if "member_outputs" in result.output_data:
+            member_results = result.output_data["member_outputs"]
+
+        if "member_metadata" in result.output_data:
+            for member_meta in result.output_data["member_metadata"]:
+                member_confidences.append(member_meta.get("confidence", 0.0))
+                member_execution_times.append(member_meta.get("execution_time_ms", 0))
+
+        # Add ensemble metadata
+        ensemble_metadata = {
+            **result.metadata,
+            "member_results": member_results,
+            "member_confidences": member_confidences,
+            "member_execution_times": member_execution_times,
+            "ensemble_ready": True,
+            "total_members": len(self.parallel_pipeline.branches),
+        }
+
+        return StageResult(
+            stage_id=result.stage_id,
+            stage_type=result.stage_type,
+            success=result.success,
+            output_thought_ids=result.output_thought_ids,
+            output_data=result.output_data,
+            trace=result.trace,
+            metadata=ensemble_metadata,
+        )
+
+
+__all__ = ["ParallelExecutor", "EnsembleParallelExecutor"]

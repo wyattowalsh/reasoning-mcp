@@ -18,7 +18,6 @@ from reasoning_mcp.methods.native.atom_of_thoughts import (
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
 
-
 # Fixtures
 
 
@@ -758,8 +757,9 @@ class TestDependencyTracking:
         thought = await aot_method.execute(session, sample_problem)
 
         atoms = thought.metadata.get("atoms", {})
-        conclusion_atoms = [a for a_id, a in atoms.items()
-                          if a["type"] == "CONCLUSION" and a_id == "C1"]
+        conclusion_atoms = [
+            a for a_id, a in atoms.items() if a["type"] == "CONCLUSION" and a_id == "C1"
+        ]
 
         if conclusion_atoms:
             conclusion = conclusion_atoms[0]
@@ -782,7 +782,7 @@ class TestDependencyTracking:
 
         # Dependency graph maps atom_id -> [dependent_atom_ids]
         assert isinstance(dep_graph, dict)
-        for atom_id, dependents in dep_graph.items():
+        for _atom_id, dependents in dep_graph.items():
             assert isinstance(dependents, list)
 
     async def test_explicit_dependencies_in_content(
@@ -818,7 +818,7 @@ class TestDAGStructure:
     ):
         """Test that the dependency graph has no circular dependencies."""
         await aot_method.initialize()
-        thought = await aot_method.execute(session, sample_problem)
+        await aot_method.execute(session, sample_problem)
 
         # Verify DAG property
         is_dag = aot_method._verify_dag()
@@ -833,10 +833,10 @@ class TestDAGStructure:
         """Test DAG property is maintained across multiple executions."""
         await aot_method.initialize()
 
-        thought1 = await aot_method.execute(session, sample_problem)
+        await aot_method.execute(session, sample_problem)
         assert aot_method._verify_dag() is True
 
-        thought2 = await aot_method.execute(session, "Another problem")
+        await aot_method.execute(session, "Another problem")
         assert aot_method._verify_dag() is True
 
     async def test_dag_after_continuation(
@@ -849,7 +849,7 @@ class TestDAGStructure:
         await aot_method.initialize()
 
         initial = await aot_method.execute(session, sample_problem)
-        continuation = await aot_method.continue_reasoning(session, initial)
+        await aot_method.continue_reasoning(session, initial)
 
         # Should still be a valid DAG
         is_dag = aot_method._verify_dag()
@@ -912,7 +912,7 @@ class TestAtomOrdering:
         thought = await aot_method.execute(session, sample_problem)
 
         atoms = thought.metadata.get("atoms", {})
-        dep_graph = thought.metadata.get("dependency_graph", {})
+        thought.metadata.get("dependency_graph", {})
 
         # For each atom, its dependencies should not depend on it (acyclic)
         for atom_id, atom in atoms.items():
@@ -962,7 +962,7 @@ class TestConclusionSynthesis:
         content = thought.content
 
         # Conclusion section should reference atomic reasoning
-        conclusion_section = content[content.find("CONCLUSION ATOMS"):]
+        conclusion_section = content[content.find("CONCLUSION ATOMS") :]
         assert "atomic reasoning chain" in conclusion_section.lower()
 
     async def test_conclusion_atom_has_metadata(
@@ -1113,7 +1113,7 @@ class TestEdgeCases:
             current = await aot_method.continue_reasoning(
                 session,
                 current,
-                guidance=f"Refine atom chain {i+1}",
+                guidance=f"Refine atom chain {i + 1}",
             )
 
         # Last thought should have depth of 3

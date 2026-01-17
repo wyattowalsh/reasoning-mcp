@@ -7,7 +7,7 @@ linear sequence, passing the output of each stage as input to the next.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from reasoning_mcp.engine.executor import (
     ExecutionContext,
@@ -15,7 +15,18 @@ from reasoning_mcp.engine.executor import (
     StageResult,
 )
 from reasoning_mcp.models.core import PipelineStageType
-from reasoning_mcp.models.pipeline import MethodStage, Pipeline, SequencePipeline, Transform
+from reasoning_mcp.models.pipeline import (
+    MethodStage,
+    Pipeline,
+    SequencePipeline,
+    StageTrace,
+    Transform,
+)
+from reasoning_mcp.telemetry.instrumentation import traced_executor
+
+if TYPE_CHECKING:
+    from reasoning_mcp.debug.collector import TraceCollector
+    from reasoning_mcp.streaming.context import StreamingContext
 
 
 class SequenceExecutor(PipelineExecutor):
@@ -50,6 +61,8 @@ class SequenceExecutor(PipelineExecutor):
         pipeline: SequencePipeline,
         stop_on_error: bool = True,
         collect_all_outputs: bool = False,
+        streaming_context: StreamingContext | None = None,
+        trace_collector: TraceCollector | None = None,
     ):
         """Initialize the sequence executor.
 
@@ -57,11 +70,18 @@ class SequenceExecutor(PipelineExecutor):
             pipeline: The sequence pipeline to execute
             stop_on_error: Whether to stop execution on first error
             collect_all_outputs: Whether to collect outputs from all stages
+            streaming_context: Optional streaming context for emitting real-time events
+            trace_collector: Optional trace collector for debugging and monitoring
         """
+
+        from reasoning_mcp.engine.executor import PipelineExecutor
+
+        PipelineExecutor.__init__(self, streaming_context, trace_collector)
         self.pipeline = pipeline
         self.stop_on_error = stop_on_error
         self.collect_all_outputs = collect_all_outputs
 
+    @traced_executor("sequence.execute")
     async def execute(self, context: ExecutionContext) -> StageResult:
         """Execute all stages in the sequence.
 
@@ -85,6 +105,19 @@ class SequenceExecutor(PipelineExecutor):
         # Track overall execution
         total_thoughts = 0
         total_errors = 0
+
+        # Start tracing span if collector is available
+        span_id = None
+        if hasattr(self, "_trace_collector") and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            span_id = self._trace_collector.start_span(
+                f"SequenceExecutor: {self.pipeline.name or self.pipeline.id}",
+                attributes={
+                    "pipeline_id": self.pipeline.id,
+                    "stages_count": len(self.pipeline.stages),
+                },
+            )
 
         # Execute each stage in sequence
         for i, stage in enumerate(self.pipeline.stages):
@@ -118,6 +151,7 @@ class SequenceExecutor(PipelineExecutor):
                             start_time=start_time,
                             total_errors=total_errors,
                             stage_traces=stage_traces,
+                            span_id=span_id,
                         )
                     else:
                         # Continue to next stage on error
@@ -135,6 +169,11 @@ class SequenceExecutor(PipelineExecutor):
 
                 # Update context variables with output data
                 context.variables.update(stage_result.output_data)
+                # Update input_data for the next stage
+                context.input_data.update(stage_result.output_data)
+                if "content" in stage_result.output_data:
+                    context.input_data["input"] = stage_result.output_data["content"]
+                context.input_data["thought_ids"] = stage_result.output_thought_ids
 
             except Exception as e:
                 total_errors += 1
@@ -142,9 +181,7 @@ class SequenceExecutor(PipelineExecutor):
                 # Create error trace
                 error_trace = self.create_trace(
                     stage_id=getattr(stage, "id", f"stage-{i}"),
-                    stage_type=getattr(
-                        stage, "stage_type", PipelineStageType.METHOD
-                    ),
+                    stage_type=getattr(stage, "stage_type", PipelineStageType.METHOD),
                     status="failed",
                     input_thought_ids=current_thought_ids,
                     output_thought_ids=[],
@@ -159,13 +196,18 @@ class SequenceExecutor(PipelineExecutor):
                         start_time=start_time,
                         total_errors=total_errors,
                         stage_traces=stage_traces,
+                        span_id=span_id,
                     )
 
         # All stages completed successfully
         end_time = datetime.now()
 
-        # Prepare final output
-        final_output = all_outputs if self.collect_all_outputs else context.variables
+        # Prepare final output - wrap list in dict if collecting all outputs
+        final_output: dict[str, Any] = (
+            {"outputs": all_outputs, **context.variables}
+            if self.collect_all_outputs
+            else context.variables
+        )
 
         # Create metrics
         metrics = self.create_metrics(
@@ -187,6 +229,12 @@ class SequenceExecutor(PipelineExecutor):
             children=stage_traces,
         )
 
+        # End tracing span on success
+        if span_id and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            self._trace_collector.end_span(span_id, SpanStatus.COMPLETED)
+
         return StageResult(
             stage_id=self.pipeline.id,
             stage_type=PipelineStageType.SEQUENCE,
@@ -200,13 +248,10 @@ class SequenceExecutor(PipelineExecutor):
             },
         )
 
-    async def execute_stage(
-        self, stage: MethodStage, context: ExecutionContext
-    ) -> StageResult:
+    async def execute_stage(self, stage: Pipeline, context: ExecutionContext) -> StageResult:
         """Execute a single stage in the sequence.
 
         This method delegates to the appropriate executor based on stage type.
-        Currently supports MethodStage execution.
 
         Args:
             stage: The stage to execute
@@ -216,80 +261,13 @@ class SequenceExecutor(PipelineExecutor):
             StageResult from stage execution
 
         Note:
-            For MethodStage, this is a placeholder that would call the actual
-            reasoning method. In a complete implementation, this would:
-            1. Get the method from the registry
-            2. Create a session if needed
-            3. Call method.execute()
-            4. Convert the result to StageResult
+            This uses the executor registry to dispatch to the correct
+            executor for the stage type.
         """
-        start_time = datetime.now()
+        from reasoning_mcp.engine.registry import get_executor_for_stage
 
-        try:
-            # This is a simplified implementation
-            # In the full system, this would:
-            # 1. Get method from registry based on stage.method_id
-            # 2. Create or get session
-            # 3. Execute method
-            # 4. Convert ThoughtNode to StageResult
-
-            # For now, create a mock result
-            # TODO: Integrate with method registry and session manager
-            end_time = datetime.now()
-
-            metrics = self.create_metrics(
-                stage_id=stage.id,
-                start_time=start_time,
-                end_time=end_time,
-                thoughts_generated=1,
-            )
-
-            trace = self.create_trace(
-                stage_id=stage.id,
-                stage_type=PipelineStageType.METHOD,
-                status="completed",
-                input_thought_ids=context.thought_ids,
-                output_thought_ids=[],  # Would be populated by method execution
-                metrics=metrics,
-            )
-
-            return StageResult(
-                stage_id=stage.id,
-                stage_type=PipelineStageType.METHOD,
-                success=True,
-                output_thought_ids=[],  # Would be populated
-                output_data={"status": "executed"},  # Would contain method output
-                trace=trace,
-            )
-
-        except Exception as e:
-            # Handle stage execution error
-            end_time = datetime.now()
-
-            metrics = self.create_metrics(
-                stage_id=stage.id,
-                start_time=start_time,
-                end_time=end_time,
-                errors_count=1,
-            )
-
-            trace = self.create_trace(
-                stage_id=stage.id,
-                stage_type=PipelineStageType.METHOD,
-                status="failed",
-                input_thought_ids=context.thought_ids,
-                output_thought_ids=[],
-                metrics=metrics,
-                error=str(e),
-            )
-
-            return StageResult(
-                stage_id=stage.id,
-                stage_type=PipelineStageType.METHOD,
-                success=False,
-                error=str(e),
-                trace=trace,
-            )
+        executor = get_executor_for_stage(stage)
+        return await executor.execute(context)
 
     def apply_transform(self, transform: Transform, data: dict[str, Any]) -> dict[str, Any]:
         """Apply a transformation to stage output data.
@@ -352,7 +330,8 @@ class SequenceExecutor(PipelineExecutor):
         error: str,
         start_time: datetime,
         total_errors: int,
-        stage_traces: list,
+        stage_traces: list[StageTrace],
+        span_id: str | None = None,
     ) -> StageResult:
         """Create a StageResult for a failed sequence execution.
 
@@ -362,6 +341,7 @@ class SequenceExecutor(PipelineExecutor):
             start_time: When execution started
             total_errors: Total number of errors encountered
             stage_traces: Traces from executed stages
+            span_id: Optional span ID to end on error
 
         Returns:
             StageResult indicating failure
@@ -385,6 +365,12 @@ class SequenceExecutor(PipelineExecutor):
             error=error,
             children=stage_traces,
         )
+
+        # End tracing span on failure
+        if span_id and hasattr(self, "_trace_collector") and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            self._trace_collector.end_span(span_id, SpanStatus.FAILED)
 
         return StageResult(
             stage_id=stage_id,

@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,6 +19,7 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -29,15 +30,17 @@ METACOGNITIVE_METADATA = MethodMetadata(
     description="Thinking about thinking - monitors and regulates own cognitive processes. "
     "Plans approach, monitors progress, evaluates quality, and adapts strategy as needed.",
     category=MethodCategory.ADVANCED,
-    tags=frozenset({
-        "metacognitive",
-        "self-monitoring",
-        "learning",
-        "adaptive",
-        "strategy",
-        "self-awareness",
-        "regulation",
-    }),
+    tags=frozenset(
+        {
+            "metacognitive",
+            "self-monitoring",
+            "learning",
+            "adaptive",
+            "strategy",
+            "self-awareness",
+            "regulation",
+        }
+    ),
     complexity=7,  # High complexity - requires meta-level reasoning
     supports_branching=True,  # Can branch to try alternative strategies
     supports_revision=True,  # Can revise approach based on monitoring
@@ -61,7 +64,7 @@ METACOGNITIVE_METADATA = MethodMetadata(
 )
 
 
-class MetacognitiveMethod:
+class MetacognitiveMethod(ReasoningMethodBase):
     """Metacognitive reasoning method implementation.
 
     This class implements metacognitive reasoning - thinking about one's own
@@ -116,6 +119,8 @@ class MetacognitiveMethod:
         ... )
         >>> print(next_thought.metadata["phase"])  # "monitoring"
     """
+
+    _use_sampling: bool = True
 
     def __init__(self) -> None:
         """Initialize the Metacognitive method."""
@@ -185,6 +190,7 @@ class MetacognitiveMethod:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Metacognitive method.
 
@@ -196,6 +202,7 @@ class MetacognitiveMethod:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the planning phase
@@ -216,9 +223,7 @@ class MetacognitiveMethod:
             >>> assert thought.method_id == MethodIdentifier.METACOGNITIVE
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Metacognitive method must be initialized before execution"
-            )
+            raise RuntimeError("Metacognitive method must be initialized before execution")
 
         # Reset state for new execution
         self._step_counter = 1
@@ -226,8 +231,19 @@ class MetacognitiveMethod:
         self._strategy_adjustments = 0
         self._metacognitive_cycle = 0
 
+        # Determine if we should use sampling
+        use_sampling = (
+            execution_context is not None and execution_context.can_sample and self._use_sampling
+        )
+
         # Generate planning content
-        content = self._generate_planning_content(input_text, context)
+        if use_sampling:
+            if execution_context is None:
+                raise RuntimeError("execution_context is required when use_sampling is True")
+            self._execution_context = execution_context
+            content = await self._sample_planning_content(input_text, context)
+        else:
+            content = self._generate_planning_content(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -262,6 +278,7 @@ class MetacognitiveMethod:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue metacognitive reasoning from a previous thought.
 
@@ -296,18 +313,14 @@ class MetacognitiveMethod:
             >>> assert monitor.parent_id == plan.id
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Metacognitive method must be initialized before continuation"
-            )
+            raise RuntimeError("Metacognitive method must be initialized before continuation")
 
         # Increment step counter
         self._step_counter += 1
 
         # Determine next phase
         prev_phase = previous_thought.metadata.get("phase", "planning")
-        self._current_phase, thought_type = self._determine_next_phase(
-            prev_phase, guidance
-        )
+        self._current_phase, thought_type = self._determine_next_phase(prev_phase, guidance)
 
         # Generate content for the current phase
         content = self._generate_phase_content(
@@ -418,6 +431,76 @@ Before diving into problem-solving, I'll think about my thinking process:
 
 Next: I'll proceed with the chosen strategy while actively monitoring my progress."""
 
+    async def _sample_planning_content(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate planning phase content using LLM sampling.
+
+        Args:
+            input_text: The problem to reason about
+            context: Optional additional context
+
+        Returns:
+            The sampled content for the planning phase
+        """
+        context_info = ""
+        if context:
+            context_info = f"\n\nContext: {context}"
+
+        prompt = f"""Problem: {input_text}{context_info}
+
+Generate a metacognitive PLANNING analysis that thinks about the thinking process before solving the problem.
+
+Address these metacognitive aspects:
+
+1. PROBLEM ANALYSIS:
+   - What type of problem is this?
+   - What are the key challenges?
+   - What does success look like?
+
+2. STRATEGY SELECTION:
+   - What reasoning strategies are available?
+   - Which approach is most suitable?
+   - What are the advantages and risks?
+
+3. RESOURCE IDENTIFICATION:
+   - What knowledge or information is required?
+   - What tools or methods will be used?
+   - What constraints should be considered?
+
+4. GOAL SETTING:
+   - What are the immediate goals?
+   - What are the longer-term goals?
+   - How to measure progress?
+
+5. ANTICIPATING OBSTACLES:
+   - What difficulties might occur?
+   - What are common pitfalls?
+   - How to prepare for challenges?"""
+
+        system_prompt = f"""You are a metacognitive reasoning assistant in the PLANNING phase (Step {self._step_counter}).
+
+Your role is to think about the thinking process itself - plan the approach before solving the problem.
+
+Be thorough and strategic in planning the reasoning approach. Focus on meta-level analysis of how to approach the problem, not solving it yet."""
+
+        def fallback() -> str:
+            return self._generate_planning_content(input_text, context)
+
+        result = await self._sample_with_fallback(
+            user_prompt=prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+        )
+
+        return f"""Step {self._step_counter}: PLANNING - Metacognitive Strategy Selection
+
+{result}
+
+Next: I'll proceed with the chosen strategy while actively monitoring my progress."""
+
     def _generate_monitoring_content(
         self,
         previous_thought: ThoughtNode,
@@ -466,7 +549,7 @@ PROGRESS MONITORING:
    - Are there any warning signs of errors?
    - Should I reconsider any assumptions?
 
-Monitoring Status: {'⚠️ Need to adjust' if self._strategy_adjustments > 0 else '✓ On track'}{guidance_text}"""
+Monitoring Status: {"⚠️ Need to adjust" if self._strategy_adjustments > 0 else "✓ On track"}{guidance_text}"""
 
     def _generate_evaluating_content(
         self,

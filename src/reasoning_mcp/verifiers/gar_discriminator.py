@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 GAR_DISCRIMINATOR_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.GAR_DISCRIMINATOR,
@@ -59,20 +58,20 @@ class GarDiscriminator:
 
         # Discriminate quality
         quality_score = self._discriminate(solution)
-        
+
         verification = (
             "GAR Adversarial Discrimination:\n"
             f"  Input quality assessment: {quality_score:.2f}\n"
             f"  Discrimination threshold: {self._discrimination_threshold:.2f}\n"
             f"  Classification: {'ACCEPT' if quality_score > self._discrimination_threshold else 'REJECT'}\n"
         )
-        
+
         return quality_score, verification
 
     def _discriminate(self, solution: str) -> float:
         """Discriminate solution quality."""
         score = 0.5
-        
+
         # Quality indicators
         if len(solution) > 20:
             score += 0.1
@@ -82,7 +81,7 @@ class GarDiscriminator:
             score += 0.1
         if any(word in solution.lower() for word in ["therefore", "because", "thus"]):
             score += 0.1
-        
+
         return min(1.0, score)
 
     async def discriminate(
@@ -97,7 +96,7 @@ class GarDiscriminator:
 
         real_scores = [self._discriminate(s) + 0.1 for s in real_solutions]
         gen_scores = [self._discriminate(s) for s in generated_solutions]
-        
+
         return (
             [min(1.0, s) for s in real_scores],
             gen_scores,

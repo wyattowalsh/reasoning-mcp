@@ -2,13 +2,26 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
-from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
+import structlog
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session, ThoughtNode
+    from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
+    from reasoning_mcp.streaming.context import StreamingContext
+
+logger = structlog.get_logger(__name__)
+
+# Sampling temperature constants
+DEFAULT_SAMPLING_TEMPERATURE = 0.7
+DEFAULT_MAX_TOKENS = 1500
+CREATIVE_TEMPERATURE = 0.9
+PRECISE_TEMPERATURE = 0.3
 
 
 @dataclass(frozen=True)
@@ -34,6 +47,7 @@ class MethodMetadata:
         best_for: List of problem types this method excels at
         not_recommended_for: List of problem types to avoid
     """
+
     identifier: MethodIdentifier
     name: str
     description: str
@@ -72,6 +86,9 @@ class ReasoningMethod(Protocol):
     plugin-provided.
     """
 
+    # Streaming support
+    streaming_context: StreamingContext | None
+
     @property
     def identifier(self) -> str:
         """Unique identifier for this method (matches MethodIdentifier enum)."""
@@ -102,13 +119,17 @@ class ReasoningMethod(Protocol):
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the reasoning method.
 
         Args:
             session: The current reasoning session
             input_text: The input to reason about
-            context: Optional additional context
+            context: Optional additional context (dict of method-specific params)
+            execution_context: Optional ExecutionContext for sampling/tool access
+                If provided and execution_context.can_sample is True, methods can
+                use execution_context.sample() for LLM calls (FastMCP v2.14+)
 
         Returns:
             A ThoughtNode representing the reasoning output
@@ -122,6 +143,7 @@ class ReasoningMethod(Protocol):
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -129,7 +151,8 @@ class ReasoningMethod(Protocol):
             session: The current reasoning session
             previous_thought: The thought to continue from
             guidance: Optional guidance for continuation
-            context: Optional additional context
+            context: Optional additional context (dict of method-specific params)
+            execution_context: Optional ExecutionContext for sampling/tool access
 
         Returns:
             A new ThoughtNode continuing the reasoning
@@ -143,3 +166,138 @@ class ReasoningMethod(Protocol):
             True if healthy, False otherwise
         """
         ...
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        """Emit a thought event if streaming is enabled.
+
+        This is a helper method that emits a ThoughtEvent through the streaming
+        context if available. Should be called during reasoning execution to
+        provide real-time updates.
+
+        Args:
+            content: The thought content to emit
+            confidence: Optional confidence score (0.0 to 1.0)
+        """
+        ...
+
+
+class ReasoningMethodBase(ReasoningMethod):
+    """Base class providing default streaming behavior for reasoning methods.
+
+    This base class provides common functionality for all reasoning methods:
+    - Streaming support via streaming_context
+    - LLM sampling with fallback via _sample_with_fallback
+    - Execution context validation via _require_execution_context
+
+    Subclasses should set _execution_context in their execute() method if they
+    need LLM sampling capabilities.
+    """
+
+    streaming_context: StreamingContext | None = None
+    _execution_context: ExecutionContext | None = None
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        """Emit a thought event if streaming is enabled."""
+        if self.streaming_context is None:
+            return
+        method_name = getattr(self, "name", self.__class__.__name__)
+        await self.streaming_context.emit_thought(content, method_name, confidence)
+
+    def _require_execution_context(self) -> None:
+        """Validate that execution context is available.
+
+        Raises:
+            RuntimeError: If execution context is None
+        """
+        if self._execution_context is None:
+            raise RuntimeError(
+                f"Execution context required for {self.identifier} "
+                "but was not provided"
+            )
+
+    async def _sample_with_fallback(
+        self,
+        user_prompt: str,
+        fallback_generator: Callable[[], str],
+        system_prompt: str = "",
+        temperature: float = DEFAULT_SAMPLING_TEMPERATURE,
+        max_tokens: int = DEFAULT_MAX_TOKENS,
+        timeout: float | None = None,
+    ) -> str:
+        """Sample from LLM with proper error handling and fallback.
+
+        This method provides a standardized way to call LLM sampling with
+        proper exception handling and fallback behavior.
+
+        Args:
+            user_prompt: The user prompt to send
+            fallback_generator: Callable that returns fallback content if sampling fails
+            system_prompt: Optional system prompt
+            temperature: Sampling temperature (default: 0.7)
+            max_tokens: Maximum tokens to generate (default: 1500)
+            timeout: Optional timeout in seconds
+
+        Returns:
+            The sampled response or fallback content
+
+        Note:
+            This method catches expected exceptions (TimeoutError, ConnectionError,
+            ValueError) and falls back gracefully. Unexpected exceptions are logged
+            and re-raised to avoid masking programming errors.
+        """
+        if self._execution_context is None:
+            logger.debug("no_execution_context", method=self.identifier)
+            return fallback_generator()
+
+        if not self._execution_context.can_sample:
+            logger.debug("sampling_not_available", method=self.identifier)
+            return fallback_generator()
+
+        try:
+            coro = self._execution_context.sample(
+                user_prompt,
+                system_prompt=system_prompt,
+                temperature=temperature,
+                max_tokens=max_tokens,
+            )
+
+            if timeout is not None:
+                result = await asyncio.wait_for(coro, timeout=timeout)
+            else:
+                result = await coro
+
+            # Ensure string return
+            return str(result) if not isinstance(result, str) else result
+
+        except TimeoutError as e:
+            logger.warning(
+                "llm_sampling_timeout",
+                method=self.identifier,
+                timeout=timeout,
+                error=str(e),
+            )
+            return fallback_generator()
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "llm_sampling_connection_error",
+                method=self.identifier,
+                error=str(e),
+            )
+            return fallback_generator()
+        except ValueError as e:
+            logger.warning(
+                "llm_sampling_value_error",
+                method=self.identifier,
+                error=str(e),
+            )
+            return fallback_generator()
+        except Exception as e:
+            # Log unexpected exceptions and re-raise to avoid masking bugs
+            logger.error(
+                "llm_sampling_unexpected_error",
+                method=self.identifier,
+                error_type=type(e).__name__,
+                error=str(e),
+                exc_info=True,
+            )
+            raise

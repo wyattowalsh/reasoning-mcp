@@ -7,8 +7,6 @@ configuration options, result aggregation, and edge cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.decomposed import (
@@ -18,7 +16,6 @@ from reasoning_mcp.methods.native.decomposed import (
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session, SessionConfig
@@ -29,10 +26,7 @@ class TestDecomposedPromptingMetadata:
 
     def test_metadata_identifier(self):
         """Test metadata has correct identifier."""
-        assert (
-            DECOMPOSED_PROMPTING_METADATA.identifier
-            == MethodIdentifier.DECOMPOSED_PROMPTING
-        )
+        assert DECOMPOSED_PROMPTING_METADATA.identifier == MethodIdentifier.DECOMPOSED_PROMPTING
 
     def test_metadata_name(self):
         """Test metadata has correct name."""
@@ -299,7 +293,7 @@ class TestDecomposedPromptingExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(session, "Test problem")
+        await method.execute(session, "Test problem")
 
         # Verify specialists were identified
         assert len(method._specialists) > 0
@@ -373,7 +367,7 @@ class TestDecomposedPromptingExecution:
 
         # First execution
         await method.execute(session1, "Problem 1")
-        first_specialists = len(method._specialists)
+        len(method._specialists)
 
         # Modify state
         method._specialist_outputs = {"test": "output"}
@@ -582,9 +576,7 @@ class TestDecomposedPromptingContinueReasoning:
 
         first_thought = await method.execute(session, "Test problem")
         context = {"additional": "info"}
-        second_thought = await method.continue_reasoning(
-            session, first_thought, context=context
-        )
+        second_thought = await method.continue_reasoning(session, first_thought, context=context)
 
         assert "context" in second_thought.metadata
         assert second_thought.metadata["context"] == context
@@ -757,7 +749,9 @@ class TestDecomposedPromptingResultAggregation:
 
         integration = await method.continue_reasoning(session, thought)
 
-        assert "Final Recommendation" in integration.content or "Recommendation" in integration.content
+        assert (
+            "Final Recommendation" in integration.content or "Recommendation" in integration.content
+        )
 
 
 class TestDecomposedPromptingEdgeCases:
@@ -770,7 +764,7 @@ class TestDecomposedPromptingEdgeCases:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(session, "Add two numbers")
+        await method.execute(session, "Add two numbers")
 
         # Even simple tasks should identify specialists
         assert len(method._specialists) > 0
@@ -888,10 +882,7 @@ class TestDecomposedPromptingIntegration:
         session = Session().start()
 
         # Execute initial thought
-        thought = await method.execute(
-            session,
-            "Design a multi-platform mobile application"
-        )
+        thought = await method.execute(session, "Design a multi-platform mobile application")
         assert thought.type == ThoughtType.INITIAL
         assert session.thought_count == 1
 
@@ -971,7 +962,7 @@ class TestDecomposedPromptingIntegration:
         await method.initialize()
 
         # Execute reasoning
-        thought = await method.execute(session, "Test problem")
+        await method.execute(session, "Test problem")
 
         # Verify config is accessible
         assert session.config.max_depth == 5

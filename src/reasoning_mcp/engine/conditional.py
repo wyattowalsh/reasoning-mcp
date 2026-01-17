@@ -10,14 +10,19 @@ from __future__ import annotations
 
 import operator
 import re
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.engine.executor import ExecutionContext, StageResult
+from reasoning_mcp.engine.executor import ExecutionContext, PipelineExecutor, StageResult
 from reasoning_mcp.models.core import PipelineStageType
 from reasoning_mcp.models.pipeline import Condition, ConditionalPipeline, Pipeline
+from reasoning_mcp.telemetry.instrumentation import traced_executor
+
+if TYPE_CHECKING:
+    from reasoning_mcp.debug.collector import TraceCollector
+    from reasoning_mcp.streaming.context import StreamingContext
 
 
-class ConditionalExecutor:
+class ConditionalExecutor(PipelineExecutor):
     """Executor for conditional pipeline branching.
 
     ConditionalExecutor evaluates conditions and executes different pipeline
@@ -68,6 +73,8 @@ class ConditionalExecutor:
         self,
         pipeline: ConditionalPipeline | None = None,
         default_branch: str = "else",
+        streaming_context: StreamingContext | None = None,
+        trace_collector: TraceCollector | None = None,
     ) -> None:
         """Initialize the conditional executor.
 
@@ -75,10 +82,14 @@ class ConditionalExecutor:
             pipeline: ConditionalPipeline to execute
             default_branch: Which branch to take if condition evaluation fails
                           ("else" to take if_false branch, "then" to take if_true)
+            streaming_context: Optional streaming context for emitting real-time events
+            trace_collector: Optional trace collector for debugging and monitoring
         """
+        super().__init__(streaming_context, trace_collector)
         self.pipeline = pipeline
         self.default_branch = default_branch
 
+    @traced_executor("conditional.execute")
     async def execute(
         self,
         context: ExecutionContext,
@@ -116,11 +127,25 @@ class ConditionalExecutor:
                 error="No pipeline provided",
             )
 
+        # Start tracing span if collector is available
+        span_id = None
+        if hasattr(self, "_trace_collector") and self._trace_collector:
+            from reasoning_mcp.models.debug import SpanStatus
+
+            span_id = self._trace_collector.start_span(
+                f"ConditionalExecutor: {active_pipeline.name or active_pipeline.id}",
+                attributes={
+                    "pipeline_id": active_pipeline.id,
+                    "condition": active_pipeline.condition.expression,
+                },
+            )
+
         try:
             # Evaluate the condition
             condition_met = self.evaluate_condition(active_pipeline.condition, context)
 
             # Select the appropriate branch
+            selected_branch: Pipeline | None
             if condition_met:
                 selected_branch = active_pipeline.if_true
             else:
@@ -133,6 +158,7 @@ class ConditionalExecutor:
                     stage_type=PipelineStageType.CONDITIONAL,
                     success=True,
                     output_thought_ids=[],
+                    output_data={},
                     metadata={
                         "condition_met": condition_met,
                         "branch_taken": "if_true" if condition_met else "if_false",
@@ -152,17 +178,34 @@ class ConditionalExecutor:
                 }
             )
 
+            # End tracing span on success
+            if span_id and self._trace_collector:
+                from reasoning_mcp.models.debug import SpanStatus
+
+                self._trace_collector.end_span(
+                    span_id, SpanStatus.COMPLETED if result.success else SpanStatus.FAILED
+                )
+
             return StageResult(
                 stage_id=active_pipeline.id,
                 stage_type=PipelineStageType.CONDITIONAL,
                 success=result.success,
                 output_thought_ids=result.output_thought_ids,
+                output_data=result.output_data,
+                trace=result.trace,
                 error=result.error,
                 metadata=metadata,
             )
 
         except Exception as e:
             error_msg = f"Conditional execution failed: {str(e)}"
+
+            # End tracing span on failure
+            if span_id and self._trace_collector:
+                from reasoning_mcp.models.debug import SpanStatus
+
+                self._trace_collector.end_span(span_id, SpanStatus.FAILED)
+
             return StageResult(
                 stage_id=active_pipeline.id,
                 stage_type=PipelineStageType.CONDITIONAL,
@@ -236,17 +279,11 @@ class ConditionalExecutor:
         # Handle logical operators
         if " and " in expression:
             parts = expression.split(" and ")
-            return all(
-                self._evaluate_simple_expression(part.strip(), variables)
-                for part in parts
-            )
+            return all(self._evaluate_simple_expression(part.strip(), variables) for part in parts)
 
         if " or " in expression:
             parts = expression.split(" or ")
-            return any(
-                self._evaluate_simple_expression(part.strip(), variables)
-                for part in parts
-            )
+            return any(self._evaluate_simple_expression(part.strip(), variables) for part in parts)
 
         if expression.startswith("not "):
             inner_expr = expression[4:].strip()
@@ -308,7 +345,7 @@ class ConditionalExecutor:
                 compare_value = None
             elif value_str.startswith('"') or value_str.startswith("'"):
                 # String literal
-                compare_value = value_str.strip('"\'')
+                compare_value = value_str.strip("\"'")
             else:
                 # Try numeric conversion
                 try:
@@ -320,7 +357,8 @@ class ConditionalExecutor:
                     # Keep as string
                     compare_value = value_str
 
-        except Exception:
+        except (ValueError, TypeError, AttributeError):
+            # Fallback to string comparison
             compare_value = value_str
 
         # Apply operator
@@ -370,3 +408,38 @@ class ConditionalExecutor:
             Result from executing the branch
         """
         return await self.execute_stage(stage, context)
+
+    async def validate(self, stage: Pipeline) -> list[str]:
+        """Validate the conditional pipeline configuration.
+
+        Checks that the pipeline has a valid condition and at least one branch.
+
+        Args:
+            stage: The pipeline stage to validate
+
+        Returns:
+            List of validation error messages (empty if valid)
+        """
+        errors: list[str] = []
+
+        if not isinstance(stage, ConditionalPipeline):
+            errors.append(f"Expected ConditionalPipeline, got {type(stage).__name__}")
+            return errors
+
+        if not stage.condition:
+            errors.append("Conditional pipeline must have a condition")
+
+        if stage.if_true is None and stage.if_false is None:
+            errors.append(
+                "Conditional pipeline must have at least one branch (if_true or if_false)"
+            )
+
+        # Validate if_true branch if present
+        if stage.if_true and (not hasattr(stage.if_true, "id") or not stage.if_true.id):
+            errors.append("if_true branch is missing an ID")
+
+        # Validate if_false branch if present
+        if stage.if_false and (not hasattr(stage.if_false, "id") or not stage.if_false.id):
+            errors.append("if_false branch is missing an ID")
+
+        return errors

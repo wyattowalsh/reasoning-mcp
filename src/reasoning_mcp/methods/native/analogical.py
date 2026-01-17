@@ -10,7 +10,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,6 +21,7 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -30,16 +33,18 @@ ANALOGICAL_METADATA = MethodMetadata(
     "insights through structural mapping. Maps relationships from a familiar source "
     "domain to an unfamiliar target domain.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "analogical",
-        "analogy",
-        "mapping",
-        "transfer",
-        "creative",
-        "teaching",
-        "comparison",
-        "structural",
-    }),
+    tags=frozenset(
+        {
+            "analogical",
+            "analogy",
+            "mapping",
+            "transfer",
+            "creative",
+            "teaching",
+            "comparison",
+            "structural",
+        }
+    ),
     complexity=4,  # Medium complexity - requires mapping and validation
     supports_branching=True,  # Can explore multiple analogies
     supports_revision=True,  # Can revise mappings
@@ -63,8 +68,10 @@ ANALOGICAL_METADATA = MethodMetadata(
     ),
 )
 
+logger = structlog.get_logger(__name__)
 
-class Analogical:
+
+class Analogical(ReasoningMethodBase):
     """Analogical Reasoning method implementation.
 
     This class implements reasoning by analogy - a powerful cognitive technique
@@ -110,6 +117,8 @@ class Analogical:
         self._initialized = False
         self._step_counter = 0
         self._current_stage = "target_analysis"
+        self._use_sampling: bool = True
+        self._execution_context: ExecutionContext | None = None
         # Stages: target_analysis -> source_identification -> structural_mapping
         #         -> insight_transfer -> validation
 
@@ -169,6 +178,7 @@ class Analogical:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Analogical Reasoning method.
 
@@ -179,6 +189,7 @@ class Analogical:
             session: The current reasoning session
             input_text: The target problem to solve through analogy
             context: Optional additional context (e.g., preferred source domains)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the target problem analysis
@@ -199,16 +210,18 @@ class Analogical:
             >>> assert thought.method_id == MethodIdentifier.ANALOGICAL
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Analogical Reasoning method must be initialized before execution"
-            )
+            raise RuntimeError("Analogical Reasoning method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
         self._current_stage = "target_analysis"
 
         # Create the initial thought - target problem analysis
-        content = self._generate_target_analysis(input_text, context)
+        content = await self._generate_target_analysis(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -223,6 +236,7 @@ class Analogical:
                 "stage": self._current_stage,
                 "reasoning_type": "analogical",
                 "target_problem": input_text,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -239,6 +253,7 @@ class Analogical:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue analogical reasoning from a previous thought.
 
@@ -254,6 +269,7 @@ class Analogical:
             previous_thought: The thought to continue from
             guidance: Optional guidance (e.g., "try a different source domain")
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the analogical reasoning
@@ -279,16 +295,18 @@ class Analogical:
                 "Analogical Reasoning method must be initialized before continuation"
             )
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # Increment step counter
         self._step_counter += 1
 
         # Determine next stage and thought type
-        thought_type, next_stage = self._determine_next_stage(
-            previous_thought, guidance
-        )
+        thought_type, next_stage = self._determine_next_stage(previous_thought, guidance)
 
         # Generate content for the current stage
-        content = self._generate_stage_content(
+        content = await self._generate_stage_content(
             stage=next_stage,
             previous_thought=previous_thought,
             guidance=guidance,
@@ -305,6 +323,7 @@ class Analogical:
             "guidance": guidance or "",
             "context": context or {},
             "reasoning_type": "analogical",
+            "sampled": self._use_sampling,
         }
 
         # Add stage-specific metadata
@@ -413,7 +432,7 @@ class Analogical:
         # Blend with previous confidence
         return (base_confidence + previous_confidence) / 2
 
-    def _generate_target_analysis(
+    async def _generate_target_analysis(
         self,
         input_text: str,
         context: dict[str, Any] | None,
@@ -427,20 +446,57 @@ class Analogical:
         Returns:
             The content for target analysis
         """
-        return (
-            f"Step {self._step_counter}: Target Problem Analysis\n\n"
-            f"Target Problem: {input_text}\n\n"
-            f"Let me analyze the structural elements of this problem:\n\n"
-            f"1. Core Challenge: Identifying the fundamental issue at play\n"
-            f"2. Key Components: Breaking down the problem into its essential parts\n"
-            f"3. Relationships: Understanding how components interact\n"
-            f"4. Desired Outcome: Clarifying what success looks like\n"
-            f"5. Constraints: Recognizing limitations and boundaries\n\n"
-            f"Next, I'll search for a familiar domain with similar structural "
-            f"patterns that can provide insights."
+        system_prompt = """You are a reasoning assistant using Analogical Reasoning methodology.
+Your task is to analyze the target problem and identify its key structural elements.
+
+Focus on:
+1. Core Challenge: The fundamental issue
+2. Key Components: Essential parts of the problem
+3. Relationships: How components interact
+4. Desired Outcome: What success looks like
+5. Constraints: Limitations and boundaries
+
+Be thorough but concise. Set up for finding analogous domains."""
+
+        user_prompt = f"""Target Problem: {input_text}
+
+Analyze the structural elements of this problem following the Analogical Reasoning framework.
+Identify the core challenge, key components, relationships, desired outcome, and constraints.
+End by noting that you'll search for a familiar domain with similar structural patterns."""
+
+        step_counter = self._step_counter
+
+        def fallback() -> str:
+            return (
+                f"Step {step_counter}: Target Problem Analysis\n\n"
+                f"Target Problem: {input_text}\n\n"
+                f"Let me analyze the structural elements of this problem:\n\n"
+                f"1. Core Challenge: Identifying the fundamental issue at play\n"
+                f"2. Key Components: Breaking down the problem into its essential parts\n"
+                f"3. Relationships: Understanding how components interact\n"
+                f"4. Desired Outcome: Clarifying what success looks like\n"
+                f"5. Constraints: Recognizing limitations and boundaries\n\n"
+                f"Next, I'll search for a familiar domain with similar structural "
+                f"patterns that can provide insights."
+            )
+
+        if not self._use_sampling:
+            return fallback()
+
+        response = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
         )
 
-    def _generate_stage_content(
+        # If fallback was returned (doesn't contain "Step"), format it
+        if not response.startswith(f"Step {step_counter}"):
+            return f"Step {step_counter}: Target Problem Analysis\n\n{response}"
+        return response
+
+    async def _generate_stage_content(
         self,
         stage: str,
         previous_thought: ThoughtNode,
@@ -458,6 +514,10 @@ class Analogical:
         Returns:
             Generated content for the stage
         """
+        if self._use_sampling and self._execution_context:
+            return await self._sample_stage_content(stage, previous_thought, guidance, context)
+
+        # Fallback to heuristic generation
         guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
 
         if stage == "source_identification":
@@ -538,3 +598,107 @@ class Analogical:
                 f"Step {self._step_counter}: Continuing analogical reasoning\n\n"
                 f"Building on previous insights...{guidance_text}"
             )
+
+    async def _sample_stage_content(
+        self,
+        stage: str,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate stage content using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        content for each stage of analogical reasoning.
+
+        Args:
+            stage: The current stage
+            previous_thought: The previous thought
+            guidance: Optional guidance
+            context: Optional context
+
+        Returns:
+            Generated content for the stage
+        """
+        if self._execution_context is None:
+            raise RuntimeError(
+                "_sample_stage_content requires execution context but was not provided"
+            )
+
+        guidance_text = f"\n\nUser Guidance: {guidance}" if guidance else ""
+
+        # Build stage-specific prompts
+        stage_instructions = {
+            "source_identification": """Identify an analogous source domain that shares structural similarities with the target problem.
+
+Explain:
+1. What source domain you've identified
+2. Why this analogy works (shared structure, known solutions, transferability, accessibility)
+3. How insights can map meaningfully
+
+End by noting you'll map the structural relationships.""",
+            "structural_mapping": """Map the structural relationships from the source domain to the target domain.
+
+Provide:
+1. Specific source → target component mappings
+2. Key similarities in patterns and dynamics
+3. Important differences in context and constraints
+
+End by noting you'll transfer insights next.""",
+            "insight_transfer": """Transfer successful approaches from the source domain to the target domain.
+
+Show:
+1. Specific insights transferred and how they're adapted
+2. Required adaptations for target-specific constraints
+3. Concrete potential solutions derived from the analogy
+
+End by noting you'll validate this analogy.""",
+            "validation": """Validate the analogy and transferred insights.
+
+Assess:
+1. Structural soundness: Do mappings preserve key relationships?
+2. Insight quality: Are transferred insights useful?
+3. Practical applicability: Can solutions be implemented?
+4. Limitations: Where does the analogy break down?
+
+Provide a conclusion with overall assessment.""",
+        }
+
+        instruction = stage_instructions.get(stage, "Continue the analogical reasoning process.")
+
+        system_prompt = f"""You are a reasoning assistant using Analogical Reasoning methodology.
+You are at the {stage.replace("_", " ")} stage.
+
+{instruction}
+
+Be specific and concrete. Build on previous analysis."""
+
+        user_prompt = f"""Previous Analysis:
+{previous_thought.content}
+
+Current Stage: {stage.replace("_", " ").title()}
+
+{instruction}{guidance_text}"""
+
+        step_counter = self._step_counter
+        stage_title = stage.replace("_", " ").title()
+        guidance_text_fallback = f"\n\nGuidance: {guidance}" if guidance else ""
+
+        def fallback() -> str:
+            return (
+                f"Step {step_counter}: {stage_title}\n\n"
+                f"Building on previous insights...{guidance_text_fallback}"
+            )
+
+        response = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        # If response is from LLM (doesn't have "Building on" fallback text), format it
+        if "Building on previous insights" not in response:
+            return f"Step {step_counter}: {stage_title}\n\n{response}"
+        return response

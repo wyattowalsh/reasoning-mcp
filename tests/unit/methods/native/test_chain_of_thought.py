@@ -8,7 +8,6 @@ evidence tracking, and edge cases.
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
 
 import pytest
 
@@ -710,7 +709,7 @@ class TestEdgeCases:
             current = await cot_method.continue_reasoning(
                 session,
                 current,
-                guidance=f"Explore aspect {i+1}",
+                guidance=f"Explore aspect {i + 1}",
             )
 
         # Last thought should have depth of 5 (0-indexed parent + 5 continuations)

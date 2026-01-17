@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 MAS_ROUTER_METADATA = RouterMetadata(
     identifier=RouterIdentifier.MAS_ROUTER,
@@ -62,21 +61,19 @@ class MasRouter:
             "synthesizer": ["integration", "summary", "conclusion"],
         }
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route to appropriate agent based on query."""
         if not self._initialized:
             raise RuntimeError("MasRouter must be initialized")
 
         # Determine best agent for query
         agent = self._select_agent(query)
-        return self._agents[agent]["method"]
+        return str(self._agents[agent]["method"])
 
     def _select_agent(self, query: str) -> str:
         """Select best agent for the query."""
         query_lower = query.lower()
-        
+
         # Simple keyword matching for agent selection
         if any(word in query_lower for word in ["verify", "check", "validate"]):
             return "validator"
@@ -95,19 +92,17 @@ class MasRouter:
             raise RuntimeError("MasRouter must be initialized")
 
         agents = available_agents or list(self._agents.keys())
-        
+
         # Assign roles to agents
         assignments = {}
         for i, agent in enumerate(agents):
             if agent in self._agents:
                 role = ["primary", "secondary", "validator", "synthesizer"][i % 4]
                 assignments[agent] = role
-        
+
         return assignments
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget across agents."""
         if not self._initialized:
             raise RuntimeError("MasRouter must be initialized")
@@ -115,18 +110,18 @@ class MasRouter:
         # Distribute budget based on agent priority
         allocation = {}
         primary_agent = self._select_agent(query)
-        
+
         # Primary agent gets 40%, others split remaining
         allocation[self._agents[primary_agent]["method"]] = int(budget * 0.4)
-        
+
         remaining = budget - int(budget * 0.4)
         other_agents = [a for a in self._agents if a != primary_agent]
         per_agent = remaining // len(other_agents) if other_agents else 0
-        
+
         for agent in other_agents:
             method = self._agents[agent]["method"]
             allocation[method] = allocation.get(method, 0) + per_agent
-        
+
         return allocation
 
     async def health_check(self) -> bool:

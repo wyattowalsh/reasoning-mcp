@@ -16,7 +16,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -24,7 +26,10 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.thought import ThoughtNode
 
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -36,16 +41,18 @@ SHANNON_THINKING_METADATA = MethodMetadata(
     "Systematic engineering approach through Problem Definition, Constraints, "
     "Model, Proof, and Implementation phases.",
     category=MethodCategory.HIGH_VALUE,
-    tags=frozenset({
-        "shannon",
-        "information-theory",
-        "engineering",
-        "systematic",
-        "mathematical",
-        "technical",
-        "rigorous",
-        "five-phase",
-    }),
+    tags=frozenset(
+        {
+            "shannon",
+            "information-theory",
+            "engineering",
+            "systematic",
+            "mathematical",
+            "technical",
+            "rigorous",
+            "five-phase",
+        }
+    ),
     complexity=7,  # High complexity due to rigorous engineering approach
     supports_branching=True,  # Can branch during model/proof phases
     supports_revision=True,  # Can revise assumptions and models
@@ -85,7 +92,7 @@ class ShannonPhase:
     IMPLEMENTATION = "implementation"
 
 
-class ShannonThinking:
+class ShannonThinking(ReasoningMethodBase):
     """Shannon Thinking reasoning method implementation.
 
     This class implements Claude Shannon's systematic problem-solving methodology,
@@ -129,12 +136,15 @@ class ShannonThinking:
         >>> print(next_thought.metadata["phase"])  # "constraints"
     """
 
+    _use_sampling: bool = True
+
     def __init__(self) -> None:
         """Initialize the Shannon Thinking method."""
         self._initialized = False
         self._step_counter = 0
         self._current_phase = ShannonPhase.PROBLEM_DEFINITION
         self._phase_history: list[str] = []
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -195,6 +205,7 @@ class ShannonThinking:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Shannon Thinking method.
 
@@ -206,6 +217,7 @@ class ShannonThinking:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context (may include domain info, constraints)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the problem definition phase
@@ -226,9 +238,10 @@ class ShannonThinking:
             >>> assert thought.method_id == MethodIdentifier.SHANNON_THINKING
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Shannon Thinking method must be initialized before execution"
-            )
+            raise RuntimeError("Shannon Thinking method must be initialized before execution")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -236,7 +249,10 @@ class ShannonThinking:
         self._phase_history = [ShannonPhase.PROBLEM_DEFINITION]
 
         # Create the initial thought - Problem Definition phase
-        content = self._generate_problem_definition(input_text, context)
+        if self._use_sampling and execution_context and execution_context.can_sample:
+            content = await self._sample_problem_definition(input_text, context)
+        else:
+            content = self._generate_problem_definition(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -253,6 +269,11 @@ class ShannonThinking:
                 "total_phases": 5,
                 "reasoning_type": "shannon",
                 "approach": "systematic engineering",
+                "sampled": (
+                    self._use_sampling
+                    and execution_context is not None
+                    and execution_context.can_sample
+                ),
             },
         )
 
@@ -269,6 +290,7 @@ class ShannonThinking:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -280,6 +302,7 @@ class ShannonThinking:
             previous_thought: The thought to continue from
             guidance: Optional guidance (e.g., "next phase", "refine model", "branch")
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the Shannon reasoning process
@@ -301,9 +324,10 @@ class ShannonThinking:
             >>> assert second.parent_id == first.id
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Shannon Thinking method must be initialized before continuation"
-            )
+            raise RuntimeError("Shannon Thinking method must be initialized before continuation")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -322,12 +346,20 @@ class ShannonThinking:
         )
 
         # Generate content based on phase
-        content = self._generate_phase_content(
-            phase=next_phase,
-            previous_thought=previous_thought,
-            guidance=guidance,
-            context=context,
-        )
+        if self._use_sampling and execution_context and execution_context.can_sample:
+            content = await self._sample_phase_content(
+                phase=next_phase,
+                previous_thought=previous_thought,
+                guidance=guidance,
+                context=context,
+            )
+        else:
+            content = self._generate_phase_content(
+                phase=next_phase,
+                previous_thought=previous_thought,
+                guidance=guidance,
+                context=context,
+            )
 
         # Update phase tracking
         if next_phase != self._current_phase:
@@ -361,6 +393,11 @@ class ShannonThinking:
                 "context": context or {},
                 "reasoning_type": "shannon",
                 "phase_history": list(self._phase_history),
+                "sampled": (
+                    self._use_sampling
+                    and execution_context is not None
+                    and execution_context.can_sample
+                ),
             },
         )
 
@@ -492,11 +529,15 @@ class ShannonThinking:
                 f"3. Practical considerations and trade-offs\n"
                 f"4. Implementation steps and methodology\n"
                 f"5. Performance expectations and metrics\n\n"
-                f"This phase translates theoretical insights into a working solution.{guidance_text}"
+                f"This phase translates theoretical insights into "
+                f"a working solution.{guidance_text}"
             )
 
         else:
-            return f"Continuing Shannon thinking process from step {previous_thought.step_number}.{guidance_text}"
+            return (
+                f"Continuing Shannon thinking process from step "
+                f"{previous_thought.step_number}.{guidance_text}"
+            )
 
     def _determine_next_phase(
         self,
@@ -528,7 +569,7 @@ class ShannonThinking:
             elif "implement" in guidance_lower:
                 return ShannonPhase.IMPLEMENTATION
             elif "refine" in guidance_lower or "iterate" in guidance_lower:
-                return current_phase  # Stay in current phase
+                return str(current_phase)  # Stay in current phase
 
         # Default progression through phases
         phase_order = [
@@ -544,7 +585,7 @@ class ShannonThinking:
             if current_idx < len(phase_order) - 1:
                 return phase_order[current_idx + 1]
             else:
-                return current_phase  # Stay in final phase
+                return str(current_phase)  # Stay in final phase
         except ValueError:
             return ShannonPhase.PROBLEM_DEFINITION
 
@@ -647,3 +688,166 @@ class ShannonThinking:
             ShannonPhase.IMPLEMENTATION: 5,
         }
         return phase_numbers.get(phase, 1)
+
+    async def _sample_problem_definition(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate problem definition using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        actual problem definition analysis rather than placeholder content.
+
+        Args:
+            input_text: The problem or question to reason about
+            context: Optional additional context
+
+        Returns:
+            The sampled problem definition content
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for sampling but was not provided")
+
+        system_prompt = """You are a reasoning assistant using Shannon Thinking methodology.
+You are in Phase 1: Problem Definition.
+
+Following Claude Shannon's systematic engineering approach, clearly define the problem space.
+Your response should:
+1. Articulate the core problem in precise technical terms
+2. Identify key variables, parameters, and components
+3. Establish the scope and boundaries of the problem
+4. Determine what constitutes a successful solution
+5. Recognize any uncertainty, entropy, or information gaps in the problem statement
+
+Use rigorous engineering language and mathematical precision where applicable."""
+
+        user_prompt = f"""Problem: {input_text}
+
+Context: {context or "No additional context provided."}
+
+Apply Shannon's Problem Definition phase. Clearly and systematically define this problem,
+identifying all essential elements, variables, and success criteria."""
+
+        def fallback() -> str:
+            return self._generate_problem_definition(input_text, context)
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=1000,
+        )
+        return f"Phase 1: Problem Definition\n\n{content}"
+
+    async def _sample_phase_content(
+        self,
+        phase: str,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate phase content using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        phase-specific content rather than placeholder templates.
+
+        Args:
+            phase: The current Shannon phase
+            previous_thought: The previous thought node
+            guidance: Optional guidance text
+            context: Optional context dictionary
+
+        Returns:
+            The sampled phase content
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for sampling but was not provided")
+
+        # Get phase-specific instructions
+        phase_instructions = self._get_phase_instructions(phase)
+        phase_number = self._get_phase_number(phase)
+
+        system_prompt = f"""You are a reasoning assistant using Shannon Thinking methodology.
+You are in Phase {phase_number}: {phase.replace("_", " ").title()}.
+
+{phase_instructions}
+
+Use rigorous engineering language and mathematical precision. Build upon previous work
+while maintaining Shannon's systematic approach to problem-solving."""
+
+        # Build context from previous thought
+        previous_context = f"""Previous Phase: {previous_thought.metadata.get("phase", "unknown")}
+Previous Analysis:
+{previous_thought.content}"""
+
+        user_prompt = f"""{previous_context}
+
+Guidance: {guidance or "Continue to the next logical step in Shannon's methodology."}
+Additional Context: {context or "None"}
+
+Apply Shannon's {phase.replace("_", " ").title()} phase. Build systematically on the \
+previous analysis."""
+
+        def fallback() -> str:
+            return self._generate_phase_content(phase, previous_thought, guidance, context)
+
+        phase_title = phase.replace("_", " ").title()
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=1200,
+        )
+        return f"Phase {phase_number}: {phase_title}\n\n{content}"
+
+    def _get_phase_instructions(self, phase: str) -> str:
+        """Get detailed instructions for a specific Shannon phase.
+
+        Args:
+            phase: The Shannon phase
+
+        Returns:
+            Detailed instructions for that phase
+        """
+        instructions = {
+            ShannonPhase.PROBLEM_DEFINITION: """Clearly define the problem space:
+- Articulate the core problem in precise technical terms
+- Identify key variables, parameters, and components
+- Establish the scope and boundaries
+- Determine success criteria
+- Recognize uncertainty and information gaps""",
+            ShannonPhase.CONSTRAINTS: """Systematically identify all constraints:
+- Physical constraints (resources, capacity, bandwidth, etc.)
+- Theoretical constraints (mathematical limits, information bounds)
+- Practical constraints (implementation, cost, time)
+- Environmental constraints (noise, interference, uncertainty)
+- Boundary conditions and edge cases""",
+            ShannonPhase.MODEL: """Construct a formal mathematical/theoretical model:
+- Mathematical representation of the system
+- Key equations and relationships
+- Information-theoretic formulation (entropy, capacity, etc.)
+- Abstraction of essential components
+- Predictive framework for system behavior""",
+            ShannonPhase.PROOF: """Validate the model through rigorous analysis:
+- Formal mathematical proofs (where applicable)
+- Theoretical analysis of model properties
+- Verification against known cases
+- Experimental validation approach
+- Sensitivity analysis and robustness testing""",
+            ShannonPhase.IMPLEMENTATION: """Design the practical implementation:
+- Concrete algorithmic or architectural design
+- Optimization strategies
+- Practical considerations and trade-offs
+- Implementation steps and methodology
+- Performance expectations and metrics""",
+        }
+        return instructions.get(phase, "Continue Shannon's systematic analysis.")

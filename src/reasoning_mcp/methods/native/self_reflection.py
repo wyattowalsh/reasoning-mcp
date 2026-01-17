@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -19,6 +19,7 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -30,15 +31,17 @@ SELF_REFLECTION_METADATA = MethodMetadata(
     "Generates initial response, then evaluates and refines through reflection cycles "
     "until quality threshold is met.",
     category=MethodCategory.HIGH_VALUE,
-    tags=frozenset({
-        "metacognitive",
-        "self-critique",
-        "iterative",
-        "refinement",
-        "quality-driven",
-        "self-evaluation",
-        "improvement",
-    }),
+    tags=frozenset(
+        {
+            "metacognitive",
+            "self-critique",
+            "iterative",
+            "refinement",
+            "quality-driven",
+            "self-evaluation",
+            "improvement",
+        }
+    ),
     complexity=4,  # Medium complexity - iterative refinement requires depth
     supports_branching=False,  # Linear refinement path
     supports_revision=True,  # Core feature - revising through reflection
@@ -64,7 +67,7 @@ SELF_REFLECTION_METADATA = MethodMetadata(
 )
 
 
-class SelfReflection:
+class SelfReflection(ReasoningMethodBase):
     """Self-Reflection reasoning method implementation.
 
     This class implements a metacognitive reasoning pattern where the system
@@ -124,6 +127,8 @@ class SelfReflection:
         self._step_counter = 0
         self._reflection_cycle = 0
         self._current_phase: str = "initial"  # initial, critique, improve
+        self._use_sampling: bool = False
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -185,6 +190,7 @@ class SelfReflection:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Self-Reflection method.
 
@@ -196,6 +202,7 @@ class SelfReflection:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context (can include quality_threshold)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the initial response
@@ -217,9 +224,11 @@ class SelfReflection:
             >>> assert "reflection_cycle" in thought.metadata
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Self-Reflection method must be initialized before execution"
-            )
+            raise RuntimeError("Self-Reflection method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -231,8 +240,11 @@ class SelfReflection:
         if context and "quality_threshold" in context:
             quality_threshold = min(max(context["quality_threshold"], 0.0), 1.0)
 
-        # Generate initial response
-        content = self._generate_initial_response(input_text, context)
+        # Generate initial response (use sampling if available)
+        if self._use_sampling:
+            content = await self._sample_initial_response(input_text, context)
+        else:
+            content = self._generate_initial_response(input_text, context)
 
         # Initial quality score (moderate - room for improvement)
         initial_quality = 0.6
@@ -253,6 +265,7 @@ class SelfReflection:
                 "reflection_cycle": self._reflection_cycle,
                 "quality_threshold": quality_threshold,
                 "needs_improvement": initial_quality < quality_threshold,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -269,6 +282,7 @@ class SelfReflection:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -282,6 +296,7 @@ class SelfReflection:
             previous_thought: The thought to continue from
             guidance: Optional guidance for the next step
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the self-reflection process
@@ -309,9 +324,11 @@ class SelfReflection:
             >>> assert improvement.metadata["phase"] == "improve"
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Self-Reflection method must be initialized before continuation"
-            )
+            raise RuntimeError("Self-Reflection method must be initialized before continuation")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -328,7 +345,10 @@ class SelfReflection:
             # Next: critique
             self._current_phase = "critique"
             thought_type = ThoughtType.VERIFICATION
-            content = self._generate_critique(previous_thought, guidance, context)
+            if self._use_sampling:
+                content = await self._sample_critique(previous_thought, guidance, context)
+            else:
+                content = self._generate_critique(previous_thought, guidance, context)
 
             # Critique identifies weaknesses
             quality_score = previous_thought.quality_score or 0.6
@@ -339,15 +359,17 @@ class SelfReflection:
             self._current_phase = "improve"
             self._reflection_cycle += 1
             thought_type = ThoughtType.REVISION
-            content = self._generate_improvement(previous_thought, guidance, context)
+            if self._use_sampling:
+                content = await self._sample_improvement(previous_thought, guidance, context)
+            else:
+                content = self._generate_improvement(previous_thought, guidance, context)
 
             # Quality improves with each cycle
             prev_quality = previous_thought.parent_id and session.graph.get_node(
                 previous_thought.parent_id
             )
             base_quality = (
-                prev_quality.quality_score if prev_quality and prev_quality.quality_score
-                else 0.6
+                prev_quality.quality_score if prev_quality and prev_quality.quality_score else 0.6
             )
             quality_score = min(base_quality + (0.1 * self._reflection_cycle), 1.0)
             confidence = min(0.6 + (0.1 * self._reflection_cycle), 0.95)
@@ -356,7 +378,10 @@ class SelfReflection:
             # Fallback to critique
             self._current_phase = "critique"
             thought_type = ThoughtType.VERIFICATION
-            content = self._generate_critique(previous_thought, guidance, context)
+            if self._use_sampling:
+                content = await self._sample_critique(previous_thought, guidance, context)
+            else:
+                content = self._generate_critique(previous_thought, guidance, context)
             quality_score = previous_thought.quality_score or 0.6
             confidence = 0.7
 
@@ -388,6 +413,7 @@ class SelfReflection:
                 "context": context or {},
                 "reasoning_type": "self_reflection",
                 "previous_quality": previous_thought.quality_score,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -513,7 +539,8 @@ class SelfReflection:
         guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
 
         return (
-            f"Step {self._step_counter}: Improved Response (Reflection Cycle {self._reflection_cycle})\n\n"
+            f"Step {self._step_counter}: Improved Response "
+            f"(Reflection Cycle {self._reflection_cycle})\n\n"
             f"Based on the critique in Step {critique_thought.step_number}, "
             f"I will now provide an improved response addressing the identified weaknesses.\n\n"
             f"Improvements applied:\n"
@@ -521,5 +548,165 @@ class SelfReflection:
             f"Revised response:\n"
             f"[LLM would provide improved, more complete response]\n\n"
             f"Quality: {critique_thought.quality_score:.2f}/1.00 → "
-            f"Target: {critique_thought.metadata.get('quality_threshold', 0.8):.2f}/1.00{guidance_text}"
+            f"Target: {critique_thought.metadata.get('quality_threshold', 0.8):.2f}/1.00"
+            f"{guidance_text}"
+        )
+
+    async def _sample_initial_response(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate initial response using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        an actual initial response rather than placeholder content.
+
+        Args:
+            input_text: The problem or question to reason about
+            context: Optional additional context
+
+        Returns:
+            A formatted string containing the sampled initial response
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        self._require_execution_context()
+
+        system_prompt = """You are a reasoning assistant using Self-Reflection methodology.
+Generate an initial response to the problem, knowing that you will later critique and
+improve it.
+
+Your initial response should:
+1. Attempt to address the problem comprehensively
+2. Show your reasoning process
+3. Be clear and well-structured
+4. Leave room for potential improvement
+
+This is your first attempt - don't aim for perfection, but provide a solid foundation
+for reflection."""
+
+        user_prompt = f"""Problem: {input_text}
+
+Generate an initial response to this problem. This will be your first attempt, which
+you will later critique and improve through self-reflection."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_initial_response(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
+        )
+
+    async def _sample_critique(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate critique using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        an actual self-critique rather than placeholder content.
+
+        Args:
+            previous_thought: The response to critique
+            guidance: Optional guidance for the critique
+            context: Optional additional context
+
+        Returns:
+            A formatted string containing the sampled critique
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        self._require_execution_context()
+
+        system_prompt = """You are a reasoning assistant performing self-critique as part of
+Self-Reflection methodology.
+
+Critically evaluate the previous response and identify:
+1. Strengths: What was done well
+2. Weaknesses: Gaps, errors, unclear explanations
+3. Missing elements: What should be added
+4. Suggested improvements: Specific recommendations
+
+Be constructive but thorough in your critique. The goal is to improve the response."""
+
+        guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
+
+        user_prompt = f"""Previous response to critique:
+{previous_thought.content}
+
+Quality score: {previous_thought.quality_score:.2f}/1.00
+Reflection cycle: {self._reflection_cycle}{guidance_text}
+
+Provide a thorough self-critique identifying strengths, weaknesses, missing elements,
+and specific improvement suggestions."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_critique(previous_thought, guidance, context),
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=1000,
+        )
+
+    async def _sample_improvement(
+        self,
+        critique_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate improvement using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        an actually improved response rather than placeholder content.
+
+        Args:
+            critique_thought: The critique to address
+            guidance: Optional guidance for the improvement
+            context: Optional additional context
+
+        Returns:
+            A formatted string containing the sampled improved response
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        self._require_execution_context()
+
+        system_prompt = """You are a reasoning assistant improving a response based on
+self-critique.
+
+Generate an improved version that:
+1. Addresses all identified weaknesses
+2. Adds missing elements
+3. Clarifies unclear points
+4. Incorporates suggested improvements
+5. Maintains the strengths of the original
+
+Your improved response should be significantly better than the original."""
+
+        guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
+        quality_threshold = critique_thought.metadata.get("quality_threshold", 0.8)
+
+        user_prompt = f"""Critique of previous response:
+{critique_thought.content}
+
+Reflection cycle: {self._reflection_cycle}
+Target quality: {quality_threshold:.2f}/1.00{guidance_text}
+
+Generate an improved response that addresses all points raised in the critique."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_improvement(
+                critique_thought, guidance, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1500,
         )

@@ -18,6 +18,7 @@ from reasoning_mcp.engine.executor import (
 )
 from reasoning_mcp.models.core import PipelineStageType
 from reasoning_mcp.models.pipeline import Pipeline, SwitchPipeline
+from reasoning_mcp.telemetry.instrumentation import traced_executor
 
 
 class SwitchExecutor(PipelineExecutor):
@@ -59,6 +60,7 @@ class SwitchExecutor(PipelineExecutor):
         self.case_sensitive = case_sensitive
         self.allow_fallthrough = allow_fallthrough
 
+    @traced_executor("switch.execute")
     async def execute(self, context: ExecutionContext) -> StageResult:
         """Execute the switch stage.
 
@@ -85,19 +87,23 @@ class SwitchExecutor(PipelineExecutor):
             )
 
             # Find the matching case
-            matching_case = self.find_matching_case(
+            matched_key, matching_case = self.find_matching_case(
                 switch_value,
                 self.pipeline.cases,
             )
 
             # Execute the matching case or default
+            case_matched = False
+            default_used = False
             if matching_case is not None:
+                case_matched = True
                 result = await self.execute_case(
                     matching_case,
                     context,
-                    case_key=self._get_case_key(switch_value),
+                    case_key=matched_key or self._get_case_key(switch_value),
                 )
             elif self.pipeline.default is not None:
+                default_used = True
                 result = await self.execute_case(
                     self.pipeline.default,
                     context,
@@ -142,6 +148,9 @@ class SwitchExecutor(PipelineExecutor):
                 metadata={
                     "switch_value": switch_value,
                     "executed_case": result.metadata.get("case_key", "unknown"),
+                    "case_matched": case_matched,
+                    "matched_key": matched_key,
+                    "default_used": default_used,
                 },
             )
 
@@ -205,6 +214,10 @@ class SwitchExecutor(PipelineExecutor):
         except ValueError:
             pass  # Not a numeric literal
 
+        # Handle special 'input' key for input_data
+        if expression == "input":
+            return context.input_data.get("input")
+
         # Handle variable lookup with dot notation
         parts = expression.split(".")
         value: Any = context.variables
@@ -212,16 +225,12 @@ class SwitchExecutor(PipelineExecutor):
         for part in parts:
             if isinstance(value, dict):
                 if part not in value:
-                    raise ValueError(
-                        f"Variable '{part}' not found in context "
-                        f"(expression: '{expression}')"
-                    )
+                    # Return None for missing variables instead of raising
+                    return None
                 value = value[part]
             else:
-                raise ValueError(
-                    f"Cannot access '{part}' on non-dict value "
-                    f"(expression: '{expression}')"
-                )
+                # Return None for invalid access instead of raising
+                return None
 
         return value
 
@@ -229,7 +238,7 @@ class SwitchExecutor(PipelineExecutor):
         self,
         value: Any,
         cases: dict[str, Pipeline],
-    ) -> Pipeline | None:
+    ) -> tuple[str | None, Pipeline | None]:
         """Find the case that matches the given value.
 
         Matching strategies (in order of precedence):
@@ -243,7 +252,7 @@ class SwitchExecutor(PipelineExecutor):
             cases: Dictionary of case keys to pipelines
 
         Returns:
-            Matching Pipeline or None if no match found
+            Tuple of (matched_key, matched_pipeline) or (None, None) if no match
         """
         value_str = str(value)
         if not self.case_sensitive:
@@ -253,14 +262,14 @@ class SwitchExecutor(PipelineExecutor):
             # Exact match
             compare_key = case_key if self.case_sensitive else case_key.lower()
             if value_str == compare_key:
-                return case_pipeline
+                return (case_key, case_pipeline)
 
             # Regex pattern match
             if case_key.startswith("regex:"):
                 pattern = case_key[6:]  # Remove 'regex:' prefix
                 try:
                     if re.match(pattern, value_str):
-                        return case_pipeline
+                        return (case_key, case_pipeline)
                 except re.error:
                     pass  # Invalid regex, skip
 
@@ -268,15 +277,15 @@ class SwitchExecutor(PipelineExecutor):
             if case_key.startswith("range:"):
                 range_spec = case_key[6:]  # Remove 'range:' prefix
                 if self._matches_range(value, range_spec):
-                    return case_pipeline
+                    return (case_key, case_pipeline)
 
             # Type match
             if case_key.startswith("type:"):
                 type_name = case_key[5:]  # Remove 'type:' prefix
                 if self._matches_type(value, type_name):
-                    return case_pipeline
+                    return (case_key, case_pipeline)
 
-        return None
+        return (None, None)
 
     def _matches_range(self, value: Any, range_spec: str) -> bool:
         """Check if value matches a numeric range.
@@ -342,7 +351,7 @@ class SwitchExecutor(PipelineExecutor):
         Returns:
             True if value matches type, False otherwise
         """
-        type_map = {
+        type_map: dict[str, type | tuple[type, ...]] = {
             "str": str,
             "string": str,
             "int": int,

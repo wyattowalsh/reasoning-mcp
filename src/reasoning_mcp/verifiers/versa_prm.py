@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 VERSA_PRM_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.VERSA_PRM,
@@ -65,7 +64,7 @@ class VersaPrm:
 
         domain = self._detect_domain(solution)
         domain_weight = self._domain_weights.get(domain, 0.8)
-        
+
         verification = (
             f"VersaPRM Multi-Domain Verification:\n"
             f"  Detected domain: {domain}\n"
@@ -76,16 +75,16 @@ class VersaPrm:
             f"    - Logical coherence: ✓\n"
             f"    - Answer format: ✓\n"
         )
-        
+
         base_score = 0.85
         score = base_score * domain_weight
-        
+
         return score, verification
 
     def _detect_domain(self, solution: str) -> str:
         """Detect the domain of the solution."""
         solution_lower = solution.lower()
-        
+
         if any(word in solution_lower for word in ["equation", "calculate", "sum", "="]):
             return "math"
         elif any(word in solution_lower for word in ["if", "then", "therefore", "implies"]):
@@ -105,13 +104,13 @@ class VersaPrm:
             raise RuntimeError("VersaPRM must be initialized")
 
         domain_weight = self._domain_weights.get(domain, 0.8)
-        
+
         verification = (
             f"Domain-specific verification ({domain}):\n"
             f"  Domain weight: {domain_weight:.2f}\n"
             f"  Verification complete.\n"
         )
-        
+
         return 0.87 * domain_weight, verification
 
     async def score_steps(
@@ -125,15 +124,15 @@ class VersaPrm:
         for step in steps:
             domain = self._detect_domain(step)
             domain_weight = self._domain_weights.get(domain, 0.8)
-            
+
             base_score = 0.8
             if len(step) > 20:
                 base_score += 0.05
             if any(c.isdigit() for c in step):
                 base_score += 0.05
-            
+
             scores.append(min(1.0, base_score * domain_weight))
-        
+
         return scores
 
     async def health_check(self) -> bool:

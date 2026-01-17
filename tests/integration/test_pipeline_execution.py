@@ -17,16 +17,15 @@ Tests cover:
 Each test validates both the execution flow and the trace/metrics collection.
 """
 
-import asyncio
 from datetime import datetime
 from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 from uuid import uuid4
 
 import pytest
 
 from reasoning_mcp.engine.conditional import ConditionalExecutor
-from reasoning_mcp.engine.executor import ExecutionContext, PipelineExecutor, StageResult
+from reasoning_mcp.engine.executor import ExecutionContext, StageResult
 from reasoning_mcp.engine.loop import LoopExecutor
 from reasoning_mcp.engine.method import MethodExecutor
 from reasoning_mcp.engine.parallel import ParallelExecutor
@@ -51,7 +50,6 @@ from reasoning_mcp.models.pipeline import (
 )
 from reasoning_mcp.models.session import Session, SessionConfig
 from reasoning_mcp.registry import MethodRegistry
-
 
 # ============================================================================
 # Fixtures
@@ -88,7 +86,7 @@ def base_context(mock_session: Session, mock_registry: MethodRegistry) -> Execut
         variables={},
     )
     # Add thought_ids attribute if it doesn't exist (implementation detail)
-    if not hasattr(context, 'thought_ids'):
+    if not hasattr(context, "thought_ids"):
         context.thought_ids = []
     return context
 
@@ -237,7 +235,7 @@ class TestSequencePipeline:
 
         with patch.object(SequenceExecutor, "execute_stage", side_effect=mock_execute):
             executor = SequenceExecutor(pipeline)
-            result = await executor.execute(base_context)
+            await executor.execute(base_context)
 
         # Verify stages were called
         assert len(received_inputs) == 2
@@ -419,9 +417,7 @@ class TestParallelPipeline:
 
         assert result.success is True
 
-    async def test_parallel_merge_vote(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_parallel_merge_vote(self, base_context: ExecutionContext, mock_method_executor):
         """Test parallel pipeline with voting merge strategy."""
         branches = [
             MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT, name="v1"),
@@ -501,12 +497,8 @@ class TestConditionalPipeline:
             return await mock_method_executor(context, stage.id)
 
         # Mock condition evaluation to return True
-        with patch.object(
-            ConditionalExecutor, "evaluate_condition", return_value=True
-        ):
-            with patch.object(
-                ConditionalExecutor, "execute_stage", side_effect=mock_execute
-            ):
+        with patch.object(ConditionalExecutor, "evaluate_condition", return_value=True):
+            with patch.object(ConditionalExecutor, "execute_stage", side_effect=mock_execute):
                 executor = ConditionalExecutor(pipeline)
                 result = await executor.execute(base_context)
 
@@ -547,12 +539,8 @@ class TestConditionalPipeline:
             return await mock_method_executor(context, stage.id)
 
         # Mock condition evaluation to return False
-        with patch.object(
-            ConditionalExecutor, "evaluate_condition", return_value=False
-        ):
-            with patch.object(
-                ConditionalExecutor, "execute_stage", side_effect=mock_execute
-            ):
+        with patch.object(ConditionalExecutor, "evaluate_condition", return_value=False):
+            with patch.object(ConditionalExecutor, "execute_stage", side_effect=mock_execute):
                 executor = ConditionalExecutor(pipeline)
                 result = await executor.execute(base_context)
 
@@ -561,9 +549,7 @@ class TestConditionalPipeline:
         assert "high_quality" not in executed_path
         assert result.success is True
 
-    async def test_conditional_nested(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_conditional_nested(self, base_context: ExecutionContext, mock_method_executor):
         """Test nested conditional pipelines."""
         # Inner conditional
         inner_condition = Condition(name="inner", expression="x > 5")
@@ -589,8 +575,10 @@ class TestConditionalPipeline:
         executed_stages = []
 
         async def mock_execute(stage, context):
-            executed_stages.append(stage.name if hasattr(stage, 'name') else "nested")
-            return await mock_method_executor(context, stage.id if hasattr(stage, 'id') else str(uuid4()))
+            executed_stages.append(stage.name if hasattr(stage, "name") else "nested")
+            return await mock_method_executor(
+                context, stage.id if hasattr(stage, "id") else str(uuid4())
+            )
 
         # Outer true, inner true
         with patch.object(ConditionalExecutor, "evaluate_condition", side_effect=[True, True]):
@@ -680,9 +668,7 @@ class TestLoopPipeline:
         # Mock condition that becomes false after 3 iterations
         condition_results = [True, True, True, False]
 
-        with patch.object(
-            LoopExecutor, "evaluate_condition", side_effect=condition_results
-        ):
+        with patch.object(LoopExecutor, "evaluate_condition", side_effect=condition_results):
             with patch.object(LoopExecutor, "execute_stage", side_effect=mock_execute):
                 executor = LoopExecutor(pipeline)
                 result = await executor.execute(base_context)
@@ -730,10 +716,12 @@ class TestLoopPipeline:
                 output_data={"insight": insight},
             )
 
-        with patch.object(LoopExecutor, "evaluate_condition", side_effect=[True, True, True, False]):
-            with patch.object(LoopExecutor, "execute_stage", side_effect=mock_execute):
-                executor = LoopExecutor(pipeline)
-                result = await executor.execute(base_context)
+        with (
+            patch.object(LoopExecutor, "evaluate_condition", side_effect=[True, True, True, False]),
+            patch.object(LoopExecutor, "execute_stage", side_effect=mock_execute),
+        ):
+            executor = LoopExecutor(pipeline)
+            result = await executor.execute(base_context)
 
         # Verify all insights were generated
         assert len(insights_generated) == 3
@@ -749,9 +737,7 @@ class TestLoopPipeline:
 class TestSwitchPipeline:
     """Test switch pipeline execution."""
 
-    async def test_switch_case_matching(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_switch_case_matching(self, base_context: ExecutionContext, mock_method_executor):
         """Test switch executes the matching case."""
         cases = {
             "simple": MethodStage(
@@ -792,9 +778,7 @@ class TestSwitchPipeline:
         assert "ethical_case" not in executed_case
         assert result.success is True
 
-    async def test_switch_default_case(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_switch_default_case(self, base_context: ExecutionContext, mock_method_executor):
         """Test switch falls back to default case when no match."""
         cases = {
             "option_a": MethodStage(
@@ -865,7 +849,7 @@ class TestSwitchPipeline:
         )
 
         # Test each case
-        for case_key in cases.keys():
+        for case_key in cases:
             executed_case = []
 
             async def mock_execute(stage, context):
@@ -920,9 +904,9 @@ class TestMixedPipeline:
         executed_stages = []
 
         async def mock_execute(stage, context):
-            stage_name = stage.name if hasattr(stage, 'name') else "parallel"
+            stage_name = stage.name if hasattr(stage, "name") else "parallel"
             executed_stages.append(stage_name)
-            return await mock_method_executor(context, getattr(stage, 'id', str(uuid4())))
+            return await mock_method_executor(context, getattr(stage, "id", str(uuid4())))
 
         with patch.object(SequenceExecutor, "execute_stage", side_effect=mock_execute):
             executor = SequenceExecutor(pipeline)
@@ -931,9 +915,7 @@ class TestMixedPipeline:
         assert result.success is True
         assert len(executed_stages) >= 3  # initial + parallel + final
 
-    async def test_mixed_all_types(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_mixed_all_types(self, base_context: ExecutionContext, mock_method_executor):
         """Test pipeline with all stage types mixed together."""
         # Build a complex nested structure
         loop_body = MethodStage(
@@ -1046,7 +1028,7 @@ class TestPipelineErrorHandling:
 
         with patch.object(SequenceExecutor, "execute_stage", side_effect=mock_execute):
             executor = SequenceExecutor(pipeline, stop_on_error=False)
-            result = await executor.execute(base_context)
+            await executor.execute(base_context)
 
         # All stages should execute despite error
         assert len(executed_stages) == 3
@@ -1077,15 +1059,13 @@ class TestPipelineErrorHandling:
             else:
                 result = await mock_method_executor(context, stage.id)
 
-            partial_results.append(
-                {"stage": stage.name, "success": result.success}
-            )
+            partial_results.append({"stage": stage.name, "success": result.success})
 
             return result
 
         with patch.object(SequenceExecutor, "execute_stage", side_effect=mock_execute):
             executor = SequenceExecutor(pipeline, stop_on_error=True)
-            result = await executor.execute(base_context)
+            await executor.execute(base_context)
 
         # Should have results from s1 and s2 before failure
         assert len(partial_results) == 3
@@ -1129,9 +1109,7 @@ class TestPipelineTracing:
         assert result.trace is not None
         assert result.trace.stage_type == PipelineStageType.SEQUENCE
 
-    async def test_trace_timing_metrics(
-        self, base_context: ExecutionContext, mock_method_executor
-    ):
+    async def test_trace_timing_metrics(self, base_context: ExecutionContext, mock_method_executor):
         """Test that trace includes timing information."""
         stage = MethodStage(
             method_id=MethodIdentifier.CHAIN_OF_THOUGHT,
@@ -1269,9 +1247,7 @@ class TestAdditionalScenarios:
             merge_strategy=MergeStrategy(name="vote"),
         )
 
-        sequence = SequencePipeline(
-            stages=[method1, parallel, method2]
-        )
+        sequence = SequencePipeline(stages=[method1, parallel, method2])
 
         # Serialize
         data = sequence.model_dump()

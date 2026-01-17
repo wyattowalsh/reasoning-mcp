@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from reasoning_mcp.server import AppContext
 
 
-def register_trace_resources(mcp: "FastMCP") -> None:
+def register_trace_resources(mcp: FastMCP) -> None:
     """Register trace-related MCP resources with the server.
 
     This function registers a resource for accessing detailed session traces:
@@ -109,7 +109,9 @@ def register_trace_resources(mcp: "FastMCP") -> None:
             }
         """
         # Get app context from server
-        ctx: AppContext = mcp.app_context
+        from reasoning_mcp.server import get_app_context
+
+        ctx: AppContext = get_app_context()
 
         # Retrieve session from manager
         session = await ctx.session_manager.get(session_id)
@@ -207,26 +209,30 @@ def register_trace_resources(mcp: "FastMCP") -> None:
                 # Include as conclusion if it's a leaf with reasonable confidence
                 # or if it's explicitly marked as a conclusion type
                 if thought.confidence >= 0.7 or thought.type.value == "conclusion":
-                    trace["conclusions"].append({
-                        "thought_id": thought.id,
-                        "content": thought.content,
-                        "confidence": thought.confidence,
-                        "quality_score": thought.quality_score,
-                        "branch_id": thought.branch_id,
-                    })
+                    trace["conclusions"].append(
+                        {
+                            "thought_id": thought.id,
+                            "content": thought.content,
+                            "confidence": thought.confidence,
+                            "quality_score": thought.quality_score,
+                            "branch_id": thought.branch_id,
+                        }
+                    )
 
         # If no high-confidence conclusions, include all leaf nodes
         if not trace["conclusions"] and leaf_ids:
             for leaf_id in leaf_ids:
                 if leaf_id in session.graph.nodes:
                     thought = session.graph.nodes[leaf_id]
-                    trace["conclusions"].append({
-                        "thought_id": thought.id,
-                        "content": thought.content,
-                        "confidence": thought.confidence,
-                        "quality_score": thought.quality_score,
-                        "branch_id": thought.branch_id,
-                    })
+                    trace["conclusions"].append(
+                        {
+                            "thought_id": thought.id,
+                            "content": thought.content,
+                            "confidence": thought.confidence,
+                            "quality_score": thought.quality_score,
+                            "branch_id": thought.branch_id,
+                        }
+                    )
 
         # Convert to JSON with nice formatting
         return json.dumps(trace, indent=2, default=str)

@@ -7,8 +7,6 @@ adaptation, and edge cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.metacognitive import (
@@ -118,8 +116,7 @@ class TestMetacognitiveBasicExecution:
         session = Session().start()
 
         thought = await method.execute(
-            session=session,
-            input_text="How to solve complex optimization problem?"
+            session=session, input_text="How to solve complex optimization problem?"
         )
 
         assert thought is not None
@@ -137,10 +134,7 @@ class TestMetacognitiveBasicExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert thought.metadata["phase"] == "planning"
         assert method._current_phase == "planning"
@@ -154,10 +148,7 @@ class TestMetacognitiveBasicExecution:
 
         assert session.thought_count == 0
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert session.thought_count == 1
         assert session.current_method == MethodIdentifier.METACOGNITIVE
@@ -172,9 +163,7 @@ class TestMetacognitiveBasicExecution:
         context = {"domain": "mathematics", "difficulty": "high"}
 
         thought = await method.execute(
-            session=session,
-            input_text="Solve equation",
-            context=context
+            session=session, input_text="Solve equation", context=context
         )
 
         assert thought.metadata["context"] == context
@@ -187,10 +176,7 @@ class TestMetacognitiveBasicExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert thought.metadata["reasoning_type"] == "metacognitive"
         assert thought.metadata["metacognitive_cycle"] == 0
@@ -217,8 +203,7 @@ class TestMetacognitiveFourPhases:
 
         # Continue: MONITORING
         monitor_thought = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan_thought
+            session=session, previous_thought=plan_thought
         )
 
         assert monitor_thought.metadata["phase"] == "monitoring"
@@ -239,8 +224,7 @@ class TestMetacognitiveFourPhases:
 
         # Continue: EVALUATING
         evaluate_thought = await method.continue_reasoning(
-            session=session,
-            previous_thought=monitor
+            session=session, previous_thought=monitor
         )
 
         assert evaluate_thought.metadata["phase"] == "evaluating"
@@ -261,8 +245,7 @@ class TestMetacognitiveFourPhases:
 
         # Continue: REGULATING
         regulate_thought = await method.continue_reasoning(
-            session=session,
-            previous_thought=evaluate
+            session=session, previous_thought=evaluate
         )
 
         assert regulate_thought.metadata["phase"] == "regulating"
@@ -285,8 +268,7 @@ class TestMetacognitiveFourPhases:
 
         # Continue: Back to MONITORING (new cycle)
         monitor2_thought = await method.continue_reasoning(
-            session=session,
-            previous_thought=regulate
+            session=session, previous_thought=regulate
         )
 
         assert monitor2_thought.metadata["phase"] == "monitoring"
@@ -382,14 +364,11 @@ class TestMetacognitiveContinueReasoning:
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.METACOGNITIVE,
             content="Test",
-            metadata={"phase": "planning"}
+            metadata={"phase": "planning"},
         )
 
         with pytest.raises(RuntimeError, match="must be initialized before continuation"):
-            await method.continue_reasoning(
-                session=session,
-                previous_thought=thought
-            )
+            await method.continue_reasoning(session=session, previous_thought=thought)
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_increments_step_counter(self):
@@ -414,9 +393,7 @@ class TestMetacognitiveContinueReasoning:
 
         plan = await method.execute(session=session, input_text="Test")
         monitor = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="Check if approach is working"
+            session=session, previous_thought=plan, guidance="Check if approach is working"
         )
 
         assert monitor.metadata["guidance"] == "Check if approach is working"
@@ -432,9 +409,7 @@ class TestMetacognitiveContinueReasoning:
 
         plan = await method.execute(session=session, input_text="Test")
         monitor = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            context=context
+            session=session, previous_thought=plan, context=context
         )
 
         assert monitor.metadata["context"] == context
@@ -489,9 +464,7 @@ class TestMetacognitiveStrategySelection:
 
         # Force back to planning with guidance
         new_plan = await method.continue_reasoning(
-            session=session,
-            previous_thought=monitor,
-            guidance="plan new strategy"
+            session=session, previous_thought=monitor, guidance="plan new strategy"
         )
 
         assert new_plan.metadata["phase"] == "planning"
@@ -510,9 +483,7 @@ class TestMetacognitiveStrategySelection:
 
         # Force back to monitoring
         monitor2 = await method.continue_reasoning(
-            session=session,
-            previous_thought=evaluate,
-            guidance="monitor current progress"
+            session=session, previous_thought=evaluate, guidance="monitor current progress"
         )
 
         assert monitor2.metadata["phase"] == "monitoring"
@@ -529,9 +500,7 @@ class TestMetacognitiveStrategySelection:
 
         # Force to evaluating immediately
         evaluate = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="evaluate effectiveness"
+            session=session, previous_thought=plan, guidance="evaluate effectiveness"
         )
 
         assert evaluate.metadata["phase"] == "evaluating"
@@ -548,9 +517,7 @@ class TestMetacognitiveStrategySelection:
 
         # Force to regulating immediately
         regulate = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="adjust strategy now"
+            session=session, previous_thought=plan, guidance="adjust strategy now"
         )
 
         assert regulate.metadata["phase"] == "regulating"
@@ -567,9 +534,7 @@ class TestMetacognitiveStrategySelection:
 
         # Force to alternative/branch
         branch = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="explore alternative approach"
+            session=session, previous_thought=plan, guidance="explore alternative approach"
         )
 
         assert branch.metadata["phase"] == "regulating"
@@ -603,10 +568,9 @@ class TestMetacognitiveProgressMonitoring:
         thoughts.append(await method.execute(session=session, input_text="Test"))
 
         for _ in range(5):
-            thoughts.append(await method.continue_reasoning(
-                session=session,
-                previous_thought=thoughts[-1]
-            ))
+            thoughts.append(
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
+            )
 
         # Verify step numbers
         for i, thought in enumerate(thoughts):
@@ -662,9 +626,7 @@ class TestMetacognitiveStrategyAdaptation:
         # Force multiple regulations
         for i in range(3):
             thought = await method.continue_reasoning(
-                session=session,
-                previous_thought=thought,
-                guidance="adjust strategy"
+                session=session, previous_thought=thought, guidance="adjust strategy"
             )
             assert thought.metadata["phase"] == "regulating"
             assert method._strategy_adjustments == i + 1
@@ -745,10 +707,7 @@ class TestMetacognitiveEdgeCases:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="What is 2 + 2?"
-        )
+        thought = await method.execute(session=session, input_text="What is 2 + 2?")
 
         assert thought is not None
         assert thought.metadata["phase"] == "planning"
@@ -762,16 +721,13 @@ class TestMetacognitiveEdgeCases:
         session = Session().start()
 
         thought = await method.execute(
-            session=session,
-            input_text="Unsolvable riddle with no clear answer"
+            session=session, input_text="Unsolvable riddle with no clear answer"
         )
 
         # Simulate getting stuck and adjusting multiple times
         for _ in range(5):
             thought = await method.continue_reasoning(
-                session=session,
-                previous_thought=thought,
-                guidance="adjust strategy"
+                session=session, previous_thought=thought, guidance="adjust strategy"
             )
 
         assert method._strategy_adjustments == 5
@@ -788,23 +744,17 @@ class TestMetacognitiveEdgeCases:
 
         # Switch to different phases rapidly
         monitor = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="track progress closely"
+            session=session, previous_thought=plan, guidance="track progress closely"
         )
         assert monitor.metadata["phase"] == "monitoring"
 
         evaluate = await method.continue_reasoning(
-            session=session,
-            previous_thought=monitor,
-            guidance="assess quality now"
+            session=session, previous_thought=monitor, guidance="assess quality now"
         )
         assert evaluate.metadata["phase"] == "evaluating"
 
         regulate = await method.continue_reasoning(
-            session=session,
-            previous_thought=evaluate,
-            guidance="regulate and adjust"
+            session=session, previous_thought=evaluate, guidance="regulate and adjust"
         )
         assert regulate.metadata["phase"] == "regulating"
 
@@ -827,11 +777,7 @@ class TestMetacognitiveEdgeCases:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test",
-            context=None
-        )
+        thought = await method.execute(session=session, input_text="Test", context=None)
 
         assert thought.metadata["context"] == {}
 
@@ -842,11 +788,7 @@ class TestMetacognitiveEdgeCases:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test",
-            context={}
-        )
+        thought = await method.execute(session=session, input_text="Test", context={})
 
         assert thought.metadata["context"] == {}
 
@@ -881,9 +823,7 @@ class TestMetacognitiveEdgeCases:
 
         # Guidance with multiple keywords - actionable keywords (evaluate) take priority
         thought = await method.continue_reasoning(
-            session=session,
-            previous_thought=plan,
-            guidance="plan to monitor and evaluate strategy"
+            session=session, previous_thought=plan, guidance="plan to monitor and evaluate strategy"
         )
 
         # Actionable keywords (evaluate) prioritized over general planning keywords

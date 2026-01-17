@@ -79,7 +79,9 @@ def register_method_resources(mcp: FastMCP) -> None:
         import json
 
         # Get app context from server
-        ctx: AppContext = mcp.get_context()
+        from reasoning_mcp.server import get_app_context
+
+        ctx: AppContext = get_app_context()
 
         # Validate registry is initialized
         if not ctx.initialized:
@@ -158,7 +160,9 @@ def register_method_resources(mcp: FastMCP) -> None:
         import json
 
         # Get app context from server
-        ctx: AppContext = mcp.get_context()
+        from reasoning_mcp.server import get_app_context
+
+        ctx: AppContext = get_app_context()
 
         # Validate registry is initialized
         if not ctx.initialized:

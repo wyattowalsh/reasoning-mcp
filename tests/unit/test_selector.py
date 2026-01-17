@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+from reasoning_mcp.methods.base import MethodMetadata
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
 from reasoning_mcp.registry import MethodRegistry
 from reasoning_mcp.selector import (
@@ -20,7 +20,6 @@ from reasoning_mcp.selector import (
     estimate_complexity,
 )
 
-
 # =============================================================================
 # Test Fixtures
 # =============================================================================
@@ -28,6 +27,8 @@ from reasoning_mcp.selector import (
 
 class MockMethod:
     """Mock implementation of ReasoningMethod protocol for testing."""
+
+    streaming_context = None
 
     def __init__(
         self,
@@ -68,6 +69,7 @@ class MockMethod:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context=None,
     ) -> Any:
         return {"thought": f"Thinking about: {input_text}"}
 
@@ -78,11 +80,15 @@ class MockMethod:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context=None,
     ) -> Any:
         return {"thought": "Continuing..."}
 
     async def health_check(self) -> bool:
         return self._healthy
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        pass
 
 
 @pytest.fixture
@@ -331,12 +337,7 @@ class TestEstimateComplexity:
     def test_complexity_max_bound(self):
         """Test complexity doesn't exceed 10."""
         # Create text with many patterns and long length
-        text = " ".join(
-            [
-                "calculate analyze code ethical creative cause decide step"
-            ]
-            * 50
-        )
+        text = " ".join(["calculate analyze code ethical creative cause decide step"] * 50)
         patterns = detect_problem_patterns(text)
         complexity = estimate_complexity(text, patterns)
         assert complexity <= 10
@@ -344,7 +345,7 @@ class TestEstimateComplexity:
     def test_complexity_min_bound(self):
         """Test complexity is at least 1."""
         text = "a"
-        patterns = {"p": False for p in range(10)}
+        patterns = {str(p): False for p in range(10)}
         complexity = estimate_complexity(text, patterns)
         assert complexity >= 1
 
@@ -485,17 +486,13 @@ class TestSelectionConstraint:
 
     def test_is_method_allowed_excluded(self):
         """Test is_method_allowed with excluded methods."""
-        constraint = SelectionConstraint(
-            excluded_methods=frozenset({"excluded_method"})
-        )
+        constraint = SelectionConstraint(excluded_methods=frozenset({"excluded_method"}))
         assert constraint.is_method_allowed("excluded_method") is False
         assert constraint.is_method_allowed("other_method") is True
 
     def test_is_method_allowed_whitelist(self):
         """Test is_method_allowed with allowed methods list."""
-        constraint = SelectionConstraint(
-            allowed_methods=frozenset({"allowed_method"})
-        )
+        constraint = SelectionConstraint(allowed_methods=frozenset({"allowed_method"}))
         assert constraint.is_method_allowed("allowed_method") is True
         assert constraint.is_method_allowed("other_method") is False
 
@@ -514,17 +511,13 @@ class TestSelectionConstraint:
 
     def test_is_category_allowed_excluded(self):
         """Test is_category_allowed with excluded categories."""
-        constraint = SelectionConstraint(
-            excluded_categories=frozenset({"excluded_category"})
-        )
+        constraint = SelectionConstraint(excluded_categories=frozenset({"excluded_category"}))
         assert constraint.is_category_allowed("excluded_category") is False
         assert constraint.is_category_allowed("other_category") is True
 
     def test_is_category_allowed_whitelist(self):
         """Test is_category_allowed with allowed categories list."""
-        constraint = SelectionConstraint(
-            allowed_categories=frozenset({"allowed_category"})
-        )
+        constraint = SelectionConstraint(allowed_categories=frozenset({"allowed_category"}))
         assert constraint.is_category_allowed("allowed_category") is True
         assert constraint.is_category_allowed("other_category") is False
 
@@ -567,52 +560,38 @@ class TestMethodRecommendation:
 
     def test_immutability(self):
         """Test that MethodRecommendation is immutable."""
-        rec = MethodRecommendation(
-            identifier="test", score=0.5, confidence=0.5, reasoning="test"
-        )
+        rec = MethodRecommendation(identifier="test", score=0.5, confidence=0.5, reasoning="test")
         with pytest.raises(AttributeError):
             rec.score = 1.0  # type: ignore[misc]
 
     def test_score_validation_min(self):
         """Test score validation minimum bound."""
         with pytest.raises(ValueError, match="score must be 0.0-1.0"):
-            MethodRecommendation(
-                identifier="test", score=-0.1, confidence=0.5, reasoning="test"
-            )
+            MethodRecommendation(identifier="test", score=-0.1, confidence=0.5, reasoning="test")
 
     def test_score_validation_max(self):
         """Test score validation maximum bound."""
         with pytest.raises(ValueError, match="score must be 0.0-1.0"):
-            MethodRecommendation(
-                identifier="test", score=1.1, confidence=0.5, reasoning="test"
-            )
+            MethodRecommendation(identifier="test", score=1.1, confidence=0.5, reasoning="test")
 
     def test_confidence_validation_min(self):
         """Test confidence validation minimum bound."""
         with pytest.raises(ValueError, match="confidence must be 0.0-1.0"):
-            MethodRecommendation(
-                identifier="test", score=0.5, confidence=-0.1, reasoning="test"
-            )
+            MethodRecommendation(identifier="test", score=0.5, confidence=-0.1, reasoning="test")
 
     def test_confidence_validation_max(self):
         """Test confidence validation maximum bound."""
         with pytest.raises(ValueError, match="confidence must be 0.0-1.0"):
-            MethodRecommendation(
-                identifier="test", score=0.5, confidence=1.1, reasoning="test"
-            )
+            MethodRecommendation(identifier="test", score=0.5, confidence=1.1, reasoning="test")
 
     def test_reasoning_validation_empty(self):
         """Test reasoning validation for empty string."""
         with pytest.raises(ValueError, match="reasoning cannot be empty"):
-            MethodRecommendation(
-                identifier="test", score=0.5, confidence=0.5, reasoning=""
-            )
+            MethodRecommendation(identifier="test", score=0.5, confidence=0.5, reasoning="")
 
     def test_comparison_by_score(self):
         """Test that recommendations can be compared by score."""
-        rec_low = MethodRecommendation(
-            identifier="low", score=0.3, confidence=0.5, reasoning="low"
-        )
+        rec_low = MethodRecommendation(identifier="low", score=0.3, confidence=0.5, reasoning="low")
         rec_high = MethodRecommendation(
             identifier="high", score=0.9, confidence=0.5, reasoning="high"
         )
@@ -621,22 +600,14 @@ class TestMethodRecommendation:
 
     def test_equality_by_identifier(self):
         """Test that equality is based on identifier."""
-        rec1 = MethodRecommendation(
-            identifier="same", score=0.3, confidence=0.5, reasoning="a"
-        )
-        rec2 = MethodRecommendation(
-            identifier="same", score=0.9, confidence=0.9, reasoning="b"
-        )
+        rec1 = MethodRecommendation(identifier="same", score=0.3, confidence=0.5, reasoning="a")
+        rec2 = MethodRecommendation(identifier="same", score=0.9, confidence=0.9, reasoning="b")
         assert rec1 == rec2
 
     def test_hash_by_identifier(self):
         """Test that hash is based on identifier."""
-        rec1 = MethodRecommendation(
-            identifier="same", score=0.3, confidence=0.5, reasoning="a"
-        )
-        rec2 = MethodRecommendation(
-            identifier="same", score=0.9, confidence=0.9, reasoning="b"
-        )
+        rec1 = MethodRecommendation(identifier="same", score=0.3, confidence=0.5, reasoning="a")
+        rec2 = MethodRecommendation(identifier="same", score=0.9, confidence=0.9, reasoning="b")
         assert hash(rec1) == hash(rec2)
 
 
@@ -663,25 +634,19 @@ class TestSelectionRule:
 
     def test_immutability(self):
         """Test that SelectionRule is immutable."""
-        rule = SelectionRule(
-            pattern="test", method="test", score_boost=0.1, reason="test"
-        )
+        rule = SelectionRule(pattern="test", method="test", score_boost=0.1, reason="test")
         with pytest.raises(AttributeError):
             rule.score_boost = 0.5  # type: ignore[misc]
 
     def test_score_boost_validation_min(self):
         """Test score_boost validation minimum bound."""
         with pytest.raises(ValueError, match="score_boost must be 0.0-1.0"):
-            SelectionRule(
-                pattern="test", method="test", score_boost=-0.1, reason="test"
-            )
+            SelectionRule(pattern="test", method="test", score_boost=-0.1, reason="test")
 
     def test_score_boost_validation_max(self):
         """Test score_boost validation maximum bound."""
         with pytest.raises(ValueError, match="score_boost must be 0.0-1.0"):
-            SelectionRule(
-                pattern="test", method="test", score_boost=1.1, reason="test"
-            )
+            SelectionRule(pattern="test", method="test", score_boost=1.1, reason="test")
 
 
 # =============================================================================
@@ -749,9 +714,7 @@ class TestMethodSelector:
     def test_analyze_complexity(self, mock_registry: MethodRegistry):
         """Test that analysis estimates complexity."""
         selector = MethodSelector(mock_registry)
-        hint = selector.analyze(
-            "Calculate, analyze, and debug this code step by step"
-        )
+        hint = selector.analyze("Calculate, analyze, and debug this code step by step")
         assert hint.complexity_estimate > 3  # Multiple patterns detected
 
     def test_analyze_requires_branching(self, mock_registry: MethodRegistry):
@@ -775,9 +738,7 @@ class TestMethodSelector:
     def test_recommend_max_recommendations(self, mock_registry: MethodRegistry):
         """Test that recommend respects max_recommendations."""
         selector = MethodSelector(mock_registry)
-        recommendations = selector.recommend(
-            "Calculate 2 + 2", max_recommendations=2
-        )
+        recommendations = selector.recommend("Calculate 2 + 2", max_recommendations=2)
         assert len(recommendations) <= 2
 
     def test_recommend_sorted_by_score(self, mock_registry: MethodRegistry):
@@ -788,76 +749,50 @@ class TestMethodSelector:
             scores = [r.score for r in recommendations]
             assert scores == sorted(scores, reverse=True)
 
-    def test_recommend_with_constraints_excluded_method(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_recommend_with_constraints_excluded_method(self, mock_registry: MethodRegistry):
         """Test recommendations with excluded method."""
         selector = MethodSelector(mock_registry)
-        constraints = SelectionConstraint(
-            excluded_methods=frozenset({"chain_of_thought"})
-        )
-        recommendations = selector.recommend(
-            "Calculate step by step", constraints=constraints
-        )
+        constraints = SelectionConstraint(excluded_methods=frozenset({"chain_of_thought"}))
+        recommendations = selector.recommend("Calculate step by step", constraints=constraints)
         identifiers = {r.identifier for r in recommendations}
         assert "chain_of_thought" not in identifiers
 
-    def test_recommend_with_constraints_allowed_category(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_recommend_with_constraints_allowed_category(self, mock_registry: MethodRegistry):
         """Test recommendations with allowed category."""
         selector = MethodSelector(mock_registry)
-        constraints = SelectionConstraint(
-            allowed_categories=frozenset({"core"})
-        )
-        recommendations = selector.recommend(
-            "Some problem", constraints=constraints
-        )
+        constraints = SelectionConstraint(allowed_categories=frozenset({"core"}))
+        recommendations = selector.recommend("Some problem", constraints=constraints)
         # All recommendations should be from core category
         for rec in recommendations:
             metadata = mock_registry.get_metadata(rec.identifier)
             assert metadata is not None
             assert str(metadata.category) == "core"
 
-    def test_recommend_with_constraints_max_complexity(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_recommend_with_constraints_max_complexity(self, mock_registry: MethodRegistry):
         """Test recommendations with max complexity."""
         selector = MethodSelector(mock_registry)
         constraints = SelectionConstraint(max_complexity=4)
-        recommendations = selector.recommend(
-            "Some problem", constraints=constraints
-        )
+        recommendations = selector.recommend("Some problem", constraints=constraints)
         for rec in recommendations:
             metadata = mock_registry.get_metadata(rec.identifier)
             assert metadata is not None
             assert metadata.complexity <= 4
 
-    def test_recommend_with_constraints_require_branching(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_recommend_with_constraints_require_branching(self, mock_registry: MethodRegistry):
         """Test recommendations with branching requirement."""
         selector = MethodSelector(mock_registry)
         constraints = SelectionConstraint(require_branching=True)
-        recommendations = selector.recommend(
-            "Some problem", constraints=constraints
-        )
+        recommendations = selector.recommend("Some problem", constraints=constraints)
         for rec in recommendations:
             metadata = mock_registry.get_metadata(rec.identifier)
             assert metadata is not None
             assert metadata.supports_branching is True
 
-    def test_recommend_with_constraints_preferred_methods(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_recommend_with_constraints_preferred_methods(self, mock_registry: MethodRegistry):
         """Test recommendations with preferred methods."""
         selector = MethodSelector(mock_registry)
-        constraints = SelectionConstraint(
-            preferred_methods=frozenset({"tree_of_thoughts"})
-        )
-        recommendations = selector.recommend(
-            "Some problem", constraints=constraints
-        )
+        constraints = SelectionConstraint(preferred_methods=frozenset({"tree_of_thoughts"}))
+        recommendations = selector.recommend("Some problem", constraints=constraints)
         # tree_of_thoughts should have boosted score
         tot_rec = next(
             (r for r in recommendations if r.identifier == "tree_of_thoughts"),
@@ -872,11 +807,7 @@ class TestMethodSelector:
         recommendations = selector.recommend("Calculate the equation")
         # mathematical_reasoning should be recommended for math problems
         math_rec = next(
-            (
-                r
-                for r in recommendations
-                if r.identifier == "mathematical_reasoning"
-            ),
+            (r for r in recommendations if r.identifier == "mathematical_reasoning"),
             None,
         )
         assert math_rec is not None
@@ -892,22 +823,16 @@ class TestMethodSelector:
         """Test that select_best respects constraints."""
         selector = MethodSelector(mock_registry)
         constraints = SelectionConstraint(
-            excluded_methods=frozenset(
-                {"mathematical_reasoning", "chain_of_thought"}
-            )
+            excluded_methods=frozenset({"mathematical_reasoning", "chain_of_thought"})
         )
         best = selector.select_best("Calculate 2 + 2", constraints=constraints)
         assert best not in {"mathematical_reasoning", "chain_of_thought"}
 
-    def test_select_best_returns_none_no_matches(
-        self, mock_registry: MethodRegistry
-    ):
+    def test_select_best_returns_none_no_matches(self, mock_registry: MethodRegistry):
         """Test select_best returns None when no methods match constraints."""
         selector = MethodSelector(mock_registry)
         # Exclude all methods
-        constraints = SelectionConstraint(
-            allowed_methods=frozenset({"nonexistent_method"})
-        )
+        constraints = SelectionConstraint(allowed_methods=frozenset({"nonexistent_method"}))
         best = selector.select_best("Some problem", constraints=constraints)
         assert best is None
 

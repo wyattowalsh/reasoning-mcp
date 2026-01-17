@@ -9,13 +9,15 @@ maintaining flexibility for different plugin implementations.
 
 from __future__ import annotations
 
-import logging
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
-from reasoning_mcp.config import Settings
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
-from reasoning_mcp.registry import MethodRegistry
+if TYPE_CHECKING:
+    import logging
+
+    from reasoning_mcp.config import Settings
+    from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+    from reasoning_mcp.registry import MethodRegistry
 
 
 class PluginError(Exception):
@@ -28,6 +30,7 @@ class PluginError(Exception):
     Example:
         >>> raise PluginError("Failed to load method configuration")
     """
+
     pass
 
 
@@ -56,6 +59,7 @@ class PluginMetadata:
         ...     entry_point="advanced_cot.plugin.AdvancedCOTPlugin",
         ... )
     """
+
     name: str
     version: str
     author: str
@@ -94,11 +98,13 @@ class PluginContext:
         >>> plugin = MyPlugin()
         >>> await plugin.initialize(context)
     """
+
     registry: MethodRegistry
     settings: Settings
     logger: logging.Logger
 
 
+@runtime_checkable
 class Plugin(Protocol):
     """Protocol defining the interface for reasoning-mcp plugins.
 

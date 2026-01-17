@@ -222,7 +222,7 @@ class TestCausalReasoningExecution:
         context: dict[str, Any] = {
             "timestamp": "3am",
             "system_load": "high",
-            "recent_changes": "deployed new code"
+            "recent_changes": "deployed new code",
         }
         result = await causal_method.execute(session, effect, context=context)
 
@@ -429,9 +429,7 @@ class TestContinueReasoning:
         first = await causal_method.execute(session, "System failure")
         guidance = "Trace to root cause"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result is not None
         assert guidance in result.content
@@ -452,9 +450,7 @@ class TestContinueReasoning:
         first = await causal_method.execute(session, "Error occurred")
         context: dict[str, Any] = {"new_data": "recent logs"}
 
-        result = await causal_method.continue_reasoning(
-            session, first, context=context
-        )
+        result = await causal_method.continue_reasoning(session, first, context=context)
 
         assert result is not None
         assert result.metadata.get("context") == context
@@ -471,7 +467,9 @@ class TestContinueReasoning:
         assert session.thought_count == initial_count + 1
 
     @pytest.mark.asyncio
-    async def test_continue_reasoning_default_progression_to_causal_tracing(self, causal_method, session):
+    async def test_continue_reasoning_default_progression_to_causal_tracing(
+        self, causal_method, session
+    ):
         """Test continue_reasoning progresses to causal_tracing stage by default."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Effect")
@@ -545,9 +543,7 @@ class TestRootCauseIdentification:
         first = await causal_method.execute(session, "Effect")
         guidance = "Identify the root cause"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result.metadata.get("stage") == "root_cause_identification"
 
@@ -568,9 +564,7 @@ class TestRootCauseIdentification:
         """Test root causes identified count is tracked."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Effect")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="root cause"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="root cause")
 
         assert "root_causes_identified" in second.metadata
 
@@ -579,9 +573,7 @@ class TestRootCauseIdentification:
         """Test Five Whys technique is mentioned in root cause analysis."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Effect")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="root cause"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="root cause")
 
         assert "Five Whys" in second.content or "Whys" in second.content
 
@@ -596,9 +588,7 @@ class TestEffectPrediction:
         first = await causal_method.execute(session, "Cause identified")
         guidance = "Predict the effects"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result.metadata.get("stage") == "effect_prediction"
 
@@ -607,9 +597,7 @@ class TestEffectPrediction:
         """Test effect prediction stage generates appropriate content."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Root cause found")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="predict effects"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="predict effects")
 
         assert "Effect Prediction" in second.content
         assert "Direct Effects" in second.content
@@ -619,9 +607,7 @@ class TestEffectPrediction:
         """Test cascading effects are considered in predictions."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Primary cause")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="predict outcomes"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="predict outcomes")
 
         assert "Cascading" in second.content or "cascading" in second.content.lower()
 
@@ -630,9 +616,7 @@ class TestEffectPrediction:
         """Test side effects and unintended consequences are considered."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Intervention planned")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="predict effects"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="predict effects")
 
         assert "Side Effects" in second.content or "Unintended" in second.content
 
@@ -658,9 +642,7 @@ class TestMechanismExplanation:
         first = await causal_method.execute(session, "Hypothesis formed")
         guidance = "Validate this causal relationship"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result.metadata.get("stage") == "validation"
 
@@ -669,9 +651,7 @@ class TestMechanismExplanation:
         """Test validation stage checks temporal precedence."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Causal claim")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="verify"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="verify")
 
         assert "Temporal Precedence" in second.content
 
@@ -680,9 +660,7 @@ class TestMechanismExplanation:
         """Test validation stage checks covariation."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Relationship observed")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="validate"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="validate")
 
         assert "Covariation" in second.content
 
@@ -691,9 +669,7 @@ class TestMechanismExplanation:
         """Test validation stage considers alternative explanations."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Suspected cause")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="validate"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="validate")
 
         assert "Alternative" in second.content or "alternative" in second.content.lower()
 
@@ -708,9 +684,7 @@ class TestBranching:
         first = await causal_method.execute(session, "Primary hypothesis")
         guidance = "Explore an alternative causal path"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result.metadata.get("stage") == "alternative_path"
 
@@ -730,9 +704,7 @@ class TestBranching:
         """Test alternative path generates appropriate content."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Hypothesis A")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="alternative"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="alternative")
 
         assert "Alternative" in second.content
         assert "hypothesis" in second.content.lower()
@@ -742,9 +714,7 @@ class TestBranching:
         """Test 'branch' in guidance creates BRANCH thought type."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Effect")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="branch"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="branch")
 
         assert second.type == ThoughtType.BRANCH
 
@@ -759,9 +729,7 @@ class TestSynthesis:
         first = await causal_method.execute(session, "Analysis complete")
         guidance = "Synthesize the findings"
 
-        result = await causal_method.continue_reasoning(
-            session, first, guidance=guidance
-        )
+        result = await causal_method.continue_reasoning(session, first, guidance=guidance)
 
         assert result.metadata.get("stage") == "synthesis"
 
@@ -770,9 +738,7 @@ class TestSynthesis:
         """Test synthesis stage creates SYNTHESIS thought type."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Data collected")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="synthesize"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="synthesize")
 
         assert second.type == ThoughtType.SYNTHESIS
 
@@ -781,9 +747,7 @@ class TestSynthesis:
         """Test synthesis stage generates appropriate content."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Multiple paths analyzed")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="summary"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="summary")
 
         assert "Synthesis" in second.content or "synthesis" in second.content.lower()
         assert "Complete Causal Chain" in second.content or "Causal Map" in second.content
@@ -793,9 +757,7 @@ class TestSynthesis:
         """Test synthesis discusses confidence assessment."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Analysis done")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="synthesize"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="synthesize")
 
         assert "Confidence" in second.content or "confidence" in second.content.lower()
 
@@ -825,9 +787,7 @@ class TestConfidenceCalculation:
         """Test root cause identification increases confidence significantly."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Effect")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="root cause"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="root cause")
 
         # Root cause should have higher confidence boost
         assert second.confidence >= 0.7
@@ -837,9 +797,7 @@ class TestConfidenceCalculation:
         """Test validation stage increases confidence."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Hypothesis")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="validate"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="validate")
 
         assert second.confidence > first.confidence
 
@@ -848,9 +806,7 @@ class TestConfidenceCalculation:
         """Test effect prediction stage decreases confidence (predictions uncertain)."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Cause")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="predict"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="predict")
 
         # Predictions are less certain
         assert second.confidence <= first.confidence
@@ -860,9 +816,7 @@ class TestConfidenceCalculation:
         """Test alternative path decreases confidence (introduces uncertainty)."""
         await causal_method.initialize()
         first = await causal_method.execute(session, "Main hypothesis")
-        second = await causal_method.continue_reasoning(
-            session, first, guidance="alternative"
-        )
+        second = await causal_method.continue_reasoning(session, first, guidance="alternative")
 
         # Alternatives introduce uncertainty
         assert second.confidence < first.confidence
@@ -896,13 +850,15 @@ class TestEdgeCases:
     async def test_very_long_input_text(self, causal_method, session):
         """Test handling of very long input text."""
         await causal_method.initialize()
-        long_effect = " ".join([
-            "The system experienced multiple cascading failures",
-            "starting with database connection pool exhaustion",
-            "leading to API timeouts which triggered circuit breakers",
-            "causing cache invalidation storms and eventual service degradation",
-            "across all microservices in the production environment"
-        ])
+        long_effect = " ".join(
+            [
+                "The system experienced multiple cascading failures",
+                "starting with database connection pool exhaustion",
+                "leading to API timeouts which triggered circuit breakers",
+                "causing cache invalidation storms and eventual service degradation",
+                "across all microservices in the production environment",
+            ]
+        )
         result = await causal_method.execute(session, long_effect)
 
         assert result is not None
@@ -985,7 +941,7 @@ class TestEdgeCases:
         await causal_method.initialize()
 
         first = await causal_method.execute(session, "Root effect")
-        second = await causal_method.continue_reasoning(session, first)
+        await causal_method.continue_reasoning(session, first)
 
         # Verify graph structure
         assert session.graph.node_count == 2

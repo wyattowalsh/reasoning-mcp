@@ -9,7 +9,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -17,7 +19,10 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.thought import ThoughtNode
 
+logger = structlog.get_logger(__name__)
+
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -29,16 +34,18 @@ MATHEMATICAL_REASONING_METADATA = MethodMetadata(
     "logical steps. Specializes in applying theorems, verifying steps, and presenting "
     "structured mathematical solutions.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "mathematical",
-        "formal",
-        "proof",
-        "logic",
-        "verification",
-        "theorem",
-        "rigorous",
-        "symbolic",
-    }),
+    tags=frozenset(
+        {
+            "mathematical",
+            "formal",
+            "proof",
+            "logic",
+            "verification",
+            "theorem",
+            "rigorous",
+            "symbolic",
+        }
+    ),
     complexity=7,  # High complexity due to formal rigor
     supports_branching=False,  # Linear proof structure
     supports_revision=True,  # Can revise proof steps
@@ -67,7 +74,7 @@ MATHEMATICAL_REASONING_METADATA = MethodMetadata(
 )
 
 
-class MathematicalReasoning:
+class MathematicalReasoning(ReasoningMethodBase):
     """Mathematical Reasoning method implementation.
 
     This class implements formal mathematical reasoning suitable for proofs,
@@ -122,6 +129,8 @@ class MathematicalReasoning:
         self._current_phase = self.PHASE_SETUP
         self._theorems_used: list[str] = []
         self._definitions_used: list[str] = []
+        self._use_sampling: bool = True
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -183,6 +192,7 @@ class MathematicalReasoning:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Mathematical Reasoning method.
 
@@ -194,6 +204,7 @@ class MathematicalReasoning:
             session: The current reasoning session
             input_text: The mathematical problem, proof request, or question
             context: Optional context (may include known theorems, axioms, etc.)
+            execution_context: Optional execution context for LLM sampling
 
         Returns:
             A ThoughtNode representing the problem setup and approach
@@ -214,9 +225,13 @@ class MathematicalReasoning:
             >>> assert thought.method_id == MethodIdentifier.MATHEMATICAL_REASONING
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Mathematical Reasoning method must be initialized before execution"
-            )
+            raise RuntimeError("Mathematical Reasoning method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        use_sampling = (
+            execution_context is not None and execution_context.can_sample and self._use_sampling
+        )
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -225,7 +240,10 @@ class MathematicalReasoning:
         self._definitions_used = []
 
         # Create the initial thought
-        content = self._generate_problem_setup(input_text, context)
+        if use_sampling:
+            content = await self._sample_problem_setup(input_text, context)
+        else:
+            content = self._generate_problem_setup(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -241,6 +259,7 @@ class MathematicalReasoning:
                 "phase": self._current_phase,
                 "theorems_used": self._theorems_used.copy(),
                 "definitions_used": self._definitions_used.copy(),
+                "sampled": use_sampling,
             },
         )
 
@@ -257,6 +276,7 @@ class MathematicalReasoning:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue mathematical reasoning from a previous thought.
 
@@ -353,6 +373,54 @@ class MathematicalReasoning:
             >>> assert await method.health_check() is True
         """
         return self._initialized
+
+    async def _sample_problem_setup(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate the initial problem setup using LLM sampling.
+
+        Args:
+            input_text: The mathematical problem or proof request
+            context: Optional additional context
+
+        Returns:
+            The content for the problem setup thought
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError(
+                "Execution context required for _sample_problem_setup but was not provided"
+            )
+
+        system_prompt = """You are a mathematical reasoning assistant.
+Analyze the given mathematical problem with rigorous formal reasoning.
+Your response should:
+1. Clearly state what needs to be proven or solved
+2. Identify relevant definitions, theorems, and axioms
+3. Outline a formal proof strategy
+4. Set up the problem with proper mathematical notation where appropriate"""
+
+        user_prompt = f"""Mathematical Problem: {input_text}
+
+Provide a rigorous mathematical problem setup:
+1. Formalize the problem statement
+2. Identify what is given and what needs to be proven/solved
+3. List relevant theorems, definitions, or formulas
+4. Outline the proof or solution strategy
+
+Begin your formal mathematical analysis."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_problem_setup(input_text, context),
+            system_prompt=system_prompt,
+            temperature=0.3,  # Lower temperature for mathematical precision
+            max_tokens=800,
+        )
 
     def _generate_problem_setup(
         self,
@@ -509,12 +577,8 @@ class MathematicalReasoning:
                 "Applying relevant theorems and mathematical principles."
             ),
             self.PHASE_DERIVATION: "Deriving the next logical step in the proof.",
-            self.PHASE_VERIFICATION: (
-                "Verifying the correctness of previous steps."
-            ),
-            self.PHASE_CONCLUSION: (
-                "Drawing the final conclusion from the proven steps."
-            ),
+            self.PHASE_VERIFICATION: ("Verifying the correctness of previous steps."),
+            self.PHASE_CONCLUSION: ("Drawing the final conclusion from the proven steps."),
         }
         return intros.get(
             self._current_phase,

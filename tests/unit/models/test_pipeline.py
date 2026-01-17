@@ -16,7 +16,6 @@ Each model is tested for:
 """
 
 import json
-from typing import Any
 
 import pytest
 from pydantic import ValidationError
@@ -40,7 +39,6 @@ from reasoning_mcp.models.pipeline import (
     SwitchPipeline,
     Transform,
 )
-
 
 # ============================================================================
 # Fixtures
@@ -590,9 +588,7 @@ class TestSequencePipeline:
 
     def test_nested_sequence_pipelines(self):
         """Test nesting SequencePipeline within SequencePipeline."""
-        inner = SequencePipeline(
-            stages=[MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT)]
-        )
+        inner = SequencePipeline(stages=[MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT)])
         outer = SequencePipeline(stages=[inner])
 
         assert len(outer.stages) == 1
@@ -1217,7 +1213,6 @@ class TestStageTrace:
 
     def test_create_stage_trace_with_children(self):
         """Test creating StageTrace with child traces."""
-        from datetime import datetime
 
         child = StageTrace(
             stage_id="child_1",

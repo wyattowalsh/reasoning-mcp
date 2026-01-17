@@ -4,9 +4,21 @@ This module contains MCP tool functions for session management and reasoning ope
 """
 
 from reasoning_mcp.tools.compose import compose
+from reasoning_mcp.tools.debug import (
+    AnalyzeTraceInput,
+    DebugToolInput,
+    GetTraceInput,
+    ListTracesInput,
+    analyze_trace,
+    enable_tracing,
+    get_trace,
+    list_traces,
+    set_trace_storage,
+)
 from reasoning_mcp.tools.evaluate import evaluate
 from reasoning_mcp.tools.methods import methods_compare, methods_list, methods_recommend
 from reasoning_mcp.tools.reason import reason
+from reasoning_mcp.tools.register import register_tools
 from reasoning_mcp.tools.session import (
     session_branch,
     session_continue,
@@ -29,4 +41,16 @@ __all__ = [
     # Pipeline tools
     "compose",
     "evaluate",
+    # Debug tools
+    "enable_tracing",
+    "get_trace",
+    "list_traces",
+    "analyze_trace",
+    "set_trace_storage",
+    "DebugToolInput",
+    "GetTraceInput",
+    "ListTracesInput",
+    "AnalyzeTraceInput",
+    # Registration
+    "register_tools",
 ]

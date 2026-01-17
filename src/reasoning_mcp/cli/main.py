@@ -9,13 +9,16 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Annotated, Optional
+from typing import TYPE_CHECKING, Annotated
 
 import typer
 
 from reasoning_mcp.config import Settings, get_settings
 from reasoning_mcp.logging import setup_logging
 from reasoning_mcp.registry import MethodRegistry
+
+if TYPE_CHECKING:
+    import logging
 
 # Create main Typer app
 app = typer.Typer(
@@ -42,7 +45,7 @@ class CLIContext:
     def __init__(
         self,
         settings: Settings,
-        logger: "logging.Logger",
+        logger: logging.Logger,
         registry: MethodRegistry,
         verbose: int = 0,
     ) -> None:
@@ -58,9 +61,6 @@ class CLIContext:
         self.logger = logger
         self.registry = registry
         self.verbose = verbose
-
-
-import logging
 
 
 def get_cli_context() -> CLIContext:
@@ -107,7 +107,7 @@ def get_settings_from_config(config_path: str | None) -> Settings:
     try:
         from reasoning_mcp.config import Settings
 
-        return Settings(_env_file=str(config_file))
+        return Settings(_env_file=str(config_file))  # type: ignore[call-arg]
     except Exception as e:
         typer.echo(f"Error: Failed to load config: {e}", err=True)
         raise typer.Exit(1) from e
@@ -143,7 +143,7 @@ def version_callback(value: bool) -> None:
 @app.callback()
 def main_callback(
     config: Annotated[
-        Optional[Path],
+        Path | None,
         typer.Option(
             "--config",
             "-c",
@@ -163,7 +163,7 @@ def main_callback(
         ),
     ] = 0,
     version: Annotated[
-        Optional[bool],
+        bool | None,
         typer.Option(
             "--version",
             callback=version_callback,
@@ -205,26 +205,87 @@ def main_callback(
 
 
 @app.command()
-def run() -> None:
+def run(
+    host: Annotated[
+        str,
+        typer.Option(
+            "--host",
+            "-H",
+            help="Host to bind to",
+        ),
+    ] = "127.0.0.1",
+    port: Annotated[
+        int,
+        typer.Option(
+            "--port",
+            "-p",
+            help="Port to bind to",
+        ),
+    ] = 8000,
+    transport: Annotated[
+        str,
+        typer.Option(
+            "--transport",
+            "-t",
+            help="Transport type: stdio, sse, or websocket",
+        ),
+    ] = "stdio",
+    debug: Annotated[
+        bool,
+        typer.Option(
+            "--debug",
+            "-d",
+            help="Enable debug logging",
+        ),
+    ] = False,
+    reload: Annotated[
+        bool,
+        typer.Option(
+            "--reload",
+            "-r",
+            help="Enable auto-reload for development (HTTP/WebSocket only)",
+        ),
+    ] = False,
+) -> None:
     """Start the MCP server.
 
     Launches the reasoning-mcp server and begins listening for MCP protocol
     messages. The server will run until interrupted (Ctrl+C).
+
+    Examples:
+        # Start with stdio transport (default for MCP)
+        reasoning-mcp run
+
+        # Start SSE server on custom host/port
+        reasoning-mcp run --host 0.0.0.0 --port 9000 --transport sse
+
+        # Enable debug mode
+        reasoning-mcp run --debug
+
+        # Development mode with auto-reload
+        reasoning-mcp run --transport sse --reload
     """
-    from reasoning_mcp.cli.commands.run import run_server
+    from reasoning_mcp.cli.commands.run import run_command
 
     ctx = get_cli_context()
-    run_server(ctx)
+    run_command(
+        ctx=ctx,
+        host=host,
+        port=port,
+        transport=transport,
+        debug=debug,
+        reload=reload,
+    )
 
 
 @app.command()
 def inspect(
     target: Annotated[
-        Optional[str],
+        str | None,
         typer.Argument(help="What to inspect (session ID, method name, etc.)"),
     ] = None,
     inspect_type: Annotated[
-        Optional[str],
+        str | None,
         typer.Option(
             "--type",
             "-t",

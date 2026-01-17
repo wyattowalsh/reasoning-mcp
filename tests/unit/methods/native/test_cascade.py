@@ -18,7 +18,6 @@ from reasoning_mcp.methods.native.cascade import (
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
 
-
 # Fixtures
 
 
@@ -423,7 +422,7 @@ class TestCascadeLevels:
         strategic = await cascade_method.execute(active_session, sample_problem)
         tactical = await cascade_method.continue_reasoning(active_session, strategic)
         operational = await cascade_method.continue_reasoning(active_session, tactical)
-        detailed = await cascade_method.continue_reasoning(active_session, operational)
+        await cascade_method.continue_reasoning(active_session, operational)
 
         # Should have 4 thoughts (one per level)
         assert active_session.thought_count == 4
@@ -833,9 +832,7 @@ class TestFinalSynthesis:
         tactical = await cascade_method.continue_reasoning(active_session, strategic)
 
         # Add feedback
-        await cascade_method.continue_reasoning(
-            active_session, tactical, guidance="Feedback: Test"
-        )
+        await cascade_method.continue_reasoning(active_session, tactical, guidance="Feedback: Test")
 
         operational = await cascade_method.continue_reasoning(active_session, tactical)
         detailed = await cascade_method.continue_reasoning(active_session, operational)
@@ -884,9 +881,7 @@ class TestConfiguration:
             "refinement_threshold": 0.8,
         }
 
-        strategic = await cascade_method.execute(
-            active_session, sample_problem, context=context
-        )
+        strategic = await cascade_method.execute(active_session, sample_problem, context=context)
 
         assert strategic.metadata["context"] == context
 
@@ -900,9 +895,7 @@ class TestConfiguration:
         """Test execution with empty context."""
         await cascade_method.initialize()
 
-        thought = await cascade_method.execute(
-            active_session, sample_problem, context={}
-        )
+        thought = await cascade_method.execute(active_session, sample_problem, context={})
 
         assert thought.metadata["context"] == {}
 
@@ -916,9 +909,7 @@ class TestConfiguration:
         """Test execution with None context."""
         await cascade_method.initialize()
 
-        thought = await cascade_method.execute(
-            active_session, sample_problem, context=None
-        )
+        thought = await cascade_method.execute(active_session, sample_problem, context=None)
 
         assert thought.metadata["context"] == {}
 
@@ -1027,7 +1018,7 @@ class TestEdgeCases:
             await cascade_method.continue_reasoning(
                 active_session,
                 tactical,
-                guidance=f"Feedback: Iteration {i+1}",
+                guidance=f"Feedback: Iteration {i + 1}",
             )
 
         assert len(cascade_method._feedback_items) == 3
@@ -1094,7 +1085,7 @@ class TestEdgeCases:
         await cascade_method.initialize()
 
         # First execution
-        thought1 = await cascade_method.execute(active_session, sample_problem)
+        await cascade_method.execute(active_session, sample_problem)
         assert cascade_method._step_counter == 1
         assert "STRATEGIC" in cascade_method._level_outputs
 

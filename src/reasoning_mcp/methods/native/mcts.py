@@ -24,31 +24,47 @@ from __future__ import annotations
 
 import math
 import random
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import structlog
+
+from reasoning_mcp.elicitation import (
+    ElicitationConfig,
+    elicit_rating,
+    elicit_selection,
+)
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
-from reasoning_mcp.methods.base import MethodMetadata
+
+logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
 
 
 # Define metadata for MCTS method
 MCTS_METADATA = MethodMetadata(
     identifier=MethodIdentifier.MCTS,
     name="Monte Carlo Tree Search",
-    description="Decision-making through simulation-based search with exploration-exploitation balance",
+    description=(
+        "Decision-making through simulation-based search with exploration-exploitation balance"
+    ),
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "mcts",
-        "tree",
-        "search",
-        "simulation",
-        "decision-making",
-        "exploration",
-        "exploitation",
-        "ucb1",
-        "specialized",
-    }),
+    tags=frozenset(
+        {
+            "mcts",
+            "tree",
+            "search",
+            "simulation",
+            "decision-making",
+            "exploration",
+            "exploitation",
+            "ucb1",
+            "specialized",
+        }
+    ),
     complexity=8,  # High complexity (7-8)
     supports_branching=True,  # Full branching support
     supports_revision=False,
@@ -129,15 +145,13 @@ class MCTSNode:
             UCB1 score balancing exploitation and exploration
         """
         if self.visits == 0:
-            return float('inf')  # Prioritize unvisited nodes
+            return float("inf")  # Prioritize unvisited nodes
 
         if self.parent is None or self.parent.visits == 0:
             return self.value / self.visits
 
         exploitation = self.value / self.visits
-        exploration = exploration_constant * math.sqrt(
-            math.log(self.parent.visits) / self.visits
-        )
+        exploration = exploration_constant * math.sqrt(math.log(self.parent.visits) / self.visits)
 
         return exploitation + exploration
 
@@ -167,7 +181,7 @@ class MCTSNode:
         return max(self.children, key=lambda c: c.visits)
 
 
-class MCTS:
+class MCTS(ReasoningMethodBase):
     """Monte Carlo Tree Search reasoning method implementation.
 
     This class implements the ReasoningMethod protocol to provide MCTS-based
@@ -209,6 +223,8 @@ class MCTS:
         ... )
     """
 
+    _use_sampling: bool = True
+
     def __init__(
         self,
         num_iterations: int = 50,
@@ -216,6 +232,7 @@ class MCTS:
         exploration_constant: float = 1.414,
         branching_factor: int = 3,
         simulation_depth: int = 3,
+        enable_elicitation: bool = True,
     ) -> None:
         """Initialize the MCTS method.
 
@@ -225,6 +242,7 @@ class MCTS:
             exploration_constant: UCB1 exploration parameter (typically sqrt(2))
             branching_factor: Number of child actions per node
             simulation_depth: Depth of random simulation rollouts
+            enable_elicitation: Whether to enable user interaction (default: True)
 
         Raises:
             ValueError: If parameters are invalid
@@ -245,6 +263,8 @@ class MCTS:
         self.exploration_constant = exploration_constant
         self.branching_factor = branching_factor
         self.simulation_depth = simulation_depth
+        self.enable_elicitation = enable_elicitation
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -280,6 +300,7 @@ class MCTS:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute MCTS reasoning on the input.
 
@@ -298,6 +319,7 @@ class MCTS:
                 - exploration_constant: UCB1 exploration parameter
                 - branching_factor: Actions per node
                 - simulation_depth: Simulation rollout depth
+            execution_context: Optional ExecutionContext for elicitation
 
         Returns:
             A ThoughtNode representing the best decision found
@@ -308,6 +330,9 @@ class MCTS:
         if not session.is_active:
             raise ValueError("Session must be active to execute reasoning")
 
+        # Store execution context for elicitation
+        self._execution_context = execution_context
+
         # Extract context parameters with defaults
         context = context or {}
         iterations = context.get("num_iterations", self.num_iterations)
@@ -317,11 +342,20 @@ class MCTS:
         sim_depth = context.get("simulation_depth", self.simulation_depth)
 
         # Create root thought
+        content = (
+            f"MCTS Decision Analysis: {input_text}\n\n"
+            f"Initializing Monte Carlo Tree Search with:\n"
+            f"- Iterations: {iterations}\n"
+            f"- Max depth: {max_depth}\n"
+            f"- Exploration constant: {exploration_c}\n"
+            f"- Branching factor: {branching}\n\n"
+            f"Phases: Selection → Expansion → Simulation → Backpropagation"
+        )
         root_thought = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.MCTS,
-            content=f"MCTS Decision Analysis: {input_text}\n\nInitializing Monte Carlo Tree Search with:\n- Iterations: {iterations}\n- Max depth: {max_depth}\n- Exploration constant: {exploration_c}\n- Branching factor: {branching}\n\nPhases: Selection → Expansion → Simulation → Backpropagation",
+            content=content,
             confidence=0.5,
             quality_score=0.5,
             depth=0,
@@ -335,7 +369,7 @@ class MCTS:
         session.add_thought(root_thought)
 
         # Create root MCTS node with initial actions
-        initial_actions = self._generate_action_set(input_text, branching)
+        initial_actions = await self._generate_action_set(input_text, branching)
         root_node = MCTSNode(root_thought, parent=None, untried_actions=initial_actions)
 
         # Track all nodes for final analysis
@@ -344,7 +378,7 @@ class MCTS:
         # Run MCTS iterations
         for iteration in range(iterations):
             # Phase 1: Selection - select node to expand
-            selected_node = await self._select(root_node, exploration_c)
+            selected_node = await self._select(root_node, exploration_c, session)
 
             # Phase 2: Expansion - add child if not terminal
             if not selected_node.is_terminal(max_depth):
@@ -357,18 +391,29 @@ class MCTS:
                 simulation_node = selected_node
 
             # Phase 3: Simulation - run random rollout
-            value = await self._simulate(simulation_node, input_text, sim_depth, max_depth)
+            value = await self._simulate(
+                simulation_node, input_text, sim_depth, max_depth, session, iteration
+            )
 
             # Phase 4: Backpropagation - update values up the tree
             await self._backpropagate(simulation_node, value)
 
             # Log progress every 10 iterations
             if (iteration + 1) % 10 == 0:
+                avg_val = root_node.value / max(root_node.visits, 1)
+                progress_content = (
+                    f"MCTS Iteration {iteration + 1}/{iterations}\n\n"
+                    f"Tree statistics:\n"
+                    f"- Root visits: {root_node.visits}\n"
+                    f"- Root value: {root_node.value:.3f}\n"
+                    f"- Children: {len(root_node.children)}\n"
+                    f"- Average value: {avg_val:.3f}"
+                )
                 progress = ThoughtNode(
                     id=str(uuid4()),
                     type=ThoughtType.OBSERVATION,
                     method_id=MethodIdentifier.MCTS,
-                    content=f"MCTS Iteration {iteration + 1}/{iterations}\n\nTree statistics:\n- Root visits: {root_node.visits}\n- Root value: {root_node.value:.3f}\n- Children: {len(root_node.children)}\n- Average value: {root_node.value / max(root_node.visits, 1):.3f}",
+                    content=progress_content,
                     parent_id=root_thought.id,
                     confidence=0.6,
                     quality_score=0.6,
@@ -390,11 +435,24 @@ class MCTS:
         win_rate = (avg_value + 1.0) / 2.0  # Convert [-1, 1] to [0, 1]
 
         # Create final synthesis thought
+        synthesis_content = (
+            f"MCTS Decision Complete\n\n"
+            f"Best decision path found:\n{' → '.join(best_path)}\n\n"
+            f"Statistics:\n"
+            f"- Total simulations: {iterations}\n"
+            f"- Path visits: {best_node.visits}\n"
+            f"- Average value: {avg_value:.3f}\n"
+            f"- Win rate: {win_rate:.1%}\n"
+            f"- Confidence: {win_rate:.1%}\n\n"
+            f"Decision: {best_node.thought.content}\n\n"
+            f"This decision was selected based on the highest number of simulation visits, "
+            f"indicating it is the most promising option after exploring {iterations} scenarios."
+        )
         synthesis = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.SYNTHESIS,
             method_id=MethodIdentifier.MCTS,
-            content=f"MCTS Decision Complete\n\nBest decision path found:\n{' → '.join(best_path)}\n\nStatistics:\n- Total simulations: {iterations}\n- Path visits: {best_node.visits}\n- Average value: {avg_value:.3f}\n- Win rate: {win_rate:.1%}\n- Confidence: {win_rate:.1%}\n\nDecision: {best_node.thought.content}\n\nThis decision was selected based on the highest number of simulation visits, indicating it is the most promising option after exploring {iterations} scenarios.",
+            content=synthesis_content,
             parent_id=best_node.thought.id,
             confidence=win_rate,
             quality_score=win_rate,
@@ -412,12 +470,18 @@ class MCTS:
 
         return synthesis
 
-    async def _select(self, node: MCTSNode, exploration_constant: float) -> MCTSNode:
+    async def _select(
+        self,
+        node: MCTSNode,
+        exploration_constant: float,
+        session: Session,
+    ) -> MCTSNode:
         """Phase 1: Selection - traverse tree using UCB1 until unexpanded node found.
 
         Args:
             node: Current node to select from
             exploration_constant: UCB1 exploration parameter
+            session: Current session for metrics tracking
 
         Returns:
             Selected node for expansion or simulation
@@ -426,6 +490,58 @@ class MCTS:
 
         # Traverse down the tree using UCB1 until we find a node that isn't fully expanded
         while current.is_fully_expanded() and current.children:
+            # Optional elicitation: ask user which branch to prioritize
+            if (
+                self.enable_elicitation
+                and self._execution_context
+                and self._execution_context.ctx
+                and len(current.children) > 1
+                and current.visits % 10 == 0  # Only elicit every 10th visit to avoid spam
+            ):
+                try:
+                    # Build options from children
+                    child_options = [
+                        {
+                            "id": str(i),
+                            "label": (
+                                f"Branch {i + 1} (visits: {child.visits}, "
+                                f"value: {child.value / max(child.visits, 1):.2f}, "
+                                f"UCB1: {child.ucb1_score(exploration_constant):.2f})"
+                            ),
+                        }
+                        for i, child in enumerate(current.children)
+                    ]
+
+                    elicit_config = ElicitationConfig(
+                        timeout=20, required=False, default_on_timeout=None
+                    )
+
+                    elicit_prompt = (
+                        f"MCTS is selecting which branch to explore at depth "
+                        f"{current.thought.depth}. Which branch should be prioritized?"
+                    )
+                    selection = await elicit_selection(
+                        self._execution_context.ctx,
+                        elicit_prompt,
+                        child_options,
+                        config=elicit_config,
+                    )
+
+                    # Use user's selection if valid
+                    selected_idx = int(selection.selected)
+                    if 0 <= selected_idx < len(current.children):
+                        current = current.children[selected_idx]
+                        session.metrics.elicitations_made += 1
+                        continue
+                except (TimeoutError, ValueError, OSError) as e:
+                    logger.warning(
+                        "elicitation_failed",
+                        method="_select",
+                        error=str(e),
+                    )
+                    # Elicitation failed - fall back to UCB1
+
+            # Default: use UCB1 to select best child
             current = current.best_child(exploration_constant)
 
         return current
@@ -458,11 +574,17 @@ class MCTS:
         node.untried_actions.remove(action)
 
         # Create thought for this action
+        child_content = (
+            f"Action: {action}\n\n"
+            f"Exploring decision path at depth {node.thought.depth + 1}\n\n"
+            f"Context: Building on '{node.thought.content[:100]}...'\n\n"
+            f"This branch investigates: {action}"
+        )
         child_thought = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.BRANCH,
             method_id=MethodIdentifier.MCTS,
-            content=f"Action: {action}\n\nExploring decision path at depth {node.thought.depth + 1}\n\nContext: Building on '{node.thought.content[:100]}...'\n\nThis branch investigates: {action}",
+            content=child_content,
             parent_id=node.thought.id,
             branch_id=f"mcts-{node.thought.id[:8]}-{len(node.children)}",
             confidence=0.5,  # Initial neutral confidence
@@ -481,7 +603,7 @@ class MCTS:
         # via update_from_thought() for BRANCH type thoughts
 
         # Create new child actions for the next level
-        new_actions = self._generate_action_set(input_text, branching_factor)
+        new_actions = await self._generate_action_set(input_text, branching_factor)
         child_node = MCTSNode(child_thought, parent=node, untried_actions=new_actions)
         node.children.append(child_node)
 
@@ -493,6 +615,8 @@ class MCTS:
         input_text: str,
         simulation_depth: int,
         max_depth: int,
+        session: Session,
+        iteration: int,
     ) -> float:
         """Phase 3: Simulation - run random rollout to estimate value.
 
@@ -501,10 +625,47 @@ class MCTS:
             input_text: Original input text
             simulation_depth: How deep to simulate
             max_depth: Maximum allowed depth
+            session: Current session for metrics tracking
+            iteration: Current iteration number
 
         Returns:
             Estimated value in range [-1.0, 1.0]
         """
+        # Optional elicitation: ask user to rate node value
+        # Only elicit on specific iterations to avoid overwhelming the user
+        if (
+            self.enable_elicitation
+            and self._execution_context
+            and self._execution_context.ctx
+            and iteration % 20 == 0  # Only elicit every 20th iteration
+            and node.thought.depth > 0  # Skip root node
+        ):
+            try:
+                elicit_config = ElicitationConfig(
+                    timeout=15, required=False, default_on_timeout=None
+                )
+
+                rating_response = await elicit_rating(
+                    self._execution_context.ctx,
+                    f"MCTS is simulating from node at depth {node.thought.depth}.\n\n"
+                    f"Node action: {node.thought.metadata.get('action', 'Root node')}\n\n"
+                    f"How promising does this path look for solving: '{input_text[:100]}...'?",
+                    config=elicit_config,
+                )
+
+                # Convert rating (1-10) to value (-1.0 to 1.0)
+                # Rating 1 = -1.0, Rating 5.5 = 0.0, Rating 10 = 1.0
+                user_value = (rating_response.rating - 5.5) / 4.5
+                session.metrics.elicitations_made += 1
+                return max(-1.0, min(1.0, user_value))
+            except (TimeoutError, ValueError, OSError) as e:
+                logger.warning(
+                    "elicitation_failed",
+                    method="_simulate",
+                    error=str(e),
+                )
+                # Elicitation failed - fall back to random simulation
+
         # Simulate random rollout from current node
         depth = node.thought.depth
         current_value = 0.0
@@ -519,7 +680,7 @@ class MCTS:
             random_action_value = random.uniform(-1.0, 1.0)
 
             # Decay value slightly with depth (prefer shorter paths)
-            decay_factor = 0.9 ** step
+            decay_factor = 0.9**step
             current_value += random_action_value * decay_factor
 
             depth += 1
@@ -538,7 +699,7 @@ class MCTS:
             node: Starting node (leaf where simulation ended)
             value: Value to propagate upward
         """
-        current = node
+        current: MCTSNode | None = node
 
         # Traverse up to root, updating visits and values
         while current is not None:
@@ -553,7 +714,7 @@ class MCTS:
             # Move to parent
             current = current.parent
 
-    def _generate_action_set(self, input_text: str, count: int) -> list[str]:
+    async def _generate_action_set(self, input_text: str, count: int) -> list[str]:
         """Generate a set of possible actions for a given state.
 
         Args:
@@ -563,7 +724,51 @@ class MCTS:
         Returns:
             List of action descriptions
         """
-        # Define action templates for different types of decisions
+        # Try LLM sampling if available
+        if self._execution_context and self._execution_context.can_sample:
+            try:
+                system_prompt = (
+                    "You are a strategic decision-making assistant helping to generate "
+                    "possible actions for Monte Carlo Tree Search. "
+                    "Generate distinct, actionable decision paths that explore different "
+                    "aspects of the problem. "
+                    "Each action should be concrete and represent a meaningful strategic choice."
+                )
+
+                user_prompt = f"""Problem: {input_text}
+
+Generate {count} distinct decision actions to explore. Each action should:
+1. Be concrete and actionable
+2. Explore a different strategic dimension
+3. Be formatted as a clear directive (e.g., "Analyze X thoroughly", "Consider Y implications")
+
+Provide exactly {count} actions, one per line."""
+
+                response = await self._execution_context.sample(
+                    user_prompt,
+                    system_prompt=system_prompt,
+                    temperature=0.7,  # Higher temperature for diversity
+                    max_tokens=400,
+                )
+                result = response.text if hasattr(response, "text") else str(response)
+
+                # Parse actions from response
+                actions = [line.strip() for line in result.split("\n") if line.strip()]
+                # Remove numbering if present (e.g., "1. " or "1) ")
+                actions = [action.split(". ", 1)[-1].split(") ", 1)[-1] for action in actions]
+
+                # Ensure we have the right number of actions
+                if len(actions) >= count:
+                    return actions[:count]
+            except (TimeoutError, ConnectionError, OSError, ValueError) as e:
+                logger.warning(
+                    "llm_sampling_failed",
+                    method="_generate_action_set",
+                    error=str(e),
+                )
+                # Fall back to template-based generation
+
+        # Fallback: Define action templates for different types of decisions
         action_templates = [
             "Analyze {aspect} thoroughly",
             "Consider {aspect} implications",
@@ -625,6 +830,7 @@ class MCTS:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -647,11 +853,17 @@ class MCTS:
         additional_iterations = context.get("num_iterations", 25)
 
         # Create continuation thought
+        guidance_text = guidance or "Running additional simulations"
+        continuation_content = (
+            f"Continuing MCTS exploration from previous analysis.\n\n"
+            f"Guidance: {guidance_text}\n\n"
+            f"Performing {additional_iterations} more iterations to refine decision..."
+        )
         continuation = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.CONTINUATION,
             method_id=MethodIdentifier.MCTS,
-            content=f"Continuing MCTS exploration from previous analysis.\n\nGuidance: {guidance or 'Running additional simulations'}\n\nPerforming {additional_iterations} more iterations to refine decision...",
+            content=continuation_content,
             parent_id=previous_thought.id,
             confidence=previous_thought.confidence * 0.95,
             quality_score=previous_thought.quality_score,

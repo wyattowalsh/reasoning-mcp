@@ -1144,7 +1144,7 @@ class TestEdgeCases:
         current = await lateral_method.execute(session, sample_problem)
 
         # Create a chain of lateral thinking
-        for i in range(6):
+        for _i in range(6):
             current = await lateral_method.continue_reasoning(session, current)
 
         # Should have explored multiple techniques

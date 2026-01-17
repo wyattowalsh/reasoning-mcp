@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.beam_search import (
@@ -13,7 +11,6 @@ from reasoning_mcp.methods.native.beam_search import (
 )
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
-
 
 # Fixtures
 
@@ -279,7 +276,7 @@ class TestBasicExecution:
         self, beam_method: BeamSearchMethod, active_session: Session
     ):
         """Test execute() creates beam search structure with multiple nodes."""
-        result = await beam_method.execute(active_session, "Solve this problem")
+        await beam_method.execute(active_session, "Solve this problem")
 
         # Should have multiple thoughts (root + candidates + synthesis)
         assert active_session.thought_count > 2
@@ -385,9 +382,7 @@ class TestConfiguration:
         self, beam_method: BeamSearchMethod, active_session: Session
     ):
         """Test context can override beam_width."""
-        result = await beam_method.execute(
-            active_session, "Test", context={"beam_width": 6}
-        )
+        result = await beam_method.execute(active_session, "Test", context={"beam_width": 6})
 
         # Check that context was used
         assert result.metadata.get("total_candidates", 0) > 0
@@ -397,9 +392,7 @@ class TestConfiguration:
         self, beam_method: BeamSearchMethod, active_session: Session
     ):
         """Test context can override max_depth."""
-        result = await beam_method.execute(
-            active_session, "Test", context={"max_depth": 2}
-        )
+        await beam_method.execute(active_session, "Test", context={"max_depth": 2})
 
         # Depth should not exceed 2 (plus synthesis)
         assert active_session.current_depth <= 3
@@ -421,7 +414,7 @@ class TestConfiguration:
         self, beam_method: BeamSearchMethod, active_session: Session
     ):
         """Test passing constraints via context."""
-        result = await beam_method.execute(
+        await beam_method.execute(
             active_session,
             "Optimize",
             context={"constraints": ["budget", "time", "quality"]},
@@ -429,9 +422,7 @@ class TestConfiguration:
 
         # Check that constraints are mentioned in root thought
         root_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.type == ThoughtType.INITIAL
+            t for t in active_session.graph.nodes.values() if t.type == ThoughtType.INITIAL
         ]
         assert len(root_thoughts) > 0
         assert "budget" in root_thoughts[0].content
@@ -462,9 +453,7 @@ class TestCandidateScoring:
         await beam_method.execute(active_session, "Test")
 
         branch_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
+            t for t in active_session.graph.nodes.values() if t.type == ThoughtType.BRANCH
         ]
 
         # Should have branch thoughts with scores
@@ -541,9 +530,7 @@ class TestBeamPruning:
 
         # Check for pruning observation thoughts
         observation_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.type == ThoughtType.OBSERVATION
+            t for t in active_session.graph.nodes.values() if t.type == ThoughtType.OBSERVATION
         ]
 
         # May have pruning observations (if pruning occurred)
@@ -582,9 +569,7 @@ class TestParallelExploration:
 
         # Check that branch thoughts exist
         branch_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
+            t for t in active_session.graph.nodes.values() if t.type == ThoughtType.BRANCH
         ]
         assert len(branch_thoughts) > 0
 
@@ -596,9 +581,7 @@ class TestParallelExploration:
         await beam_method.execute(active_session, "Test")
 
         branch_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
+            t for t in active_session.graph.nodes.values() if t.type == ThoughtType.BRANCH
         ]
 
         # Different branches should have different approaches
@@ -781,13 +764,11 @@ class TestEarlyConvergence:
     async def test_detects_low_diversity(self, active_session: Session):
         """Test that low diversity triggers convergence check."""
         beam = BeamSearchMethod(beam_width=3, max_depth=10)
-        result = await beam.execute(active_session, "Test")
+        await beam.execute(active_session, "Test")
 
         # Check if convergence was detected (may or may not happen)
         convergence_thoughts = [
-            t
-            for t in active_session.graph.nodes.values()
-            if t.metadata.get("is_convergence")
+            t for t in active_session.graph.nodes.values() if t.metadata.get("is_convergence")
         ]
 
         # If convergence occurred, verify the thought
@@ -859,9 +840,7 @@ class TestEdgeCases:
         assert levels > 0
 
     @pytest.mark.asyncio
-    async def test_empty_input_text(
-        self, beam_method: BeamSearchMethod, active_session: Session
-    ):
+    async def test_empty_input_text(self, beam_method: BeamSearchMethod, active_session: Session):
         """Test with empty input text."""
         result = await beam_method.execute(active_session, "")
 

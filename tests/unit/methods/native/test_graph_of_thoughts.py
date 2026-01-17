@@ -7,8 +7,6 @@ aggregation, cycle prevention, and various edge cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.graph_of_thoughts import (
@@ -104,7 +102,10 @@ class TestGraphOfThoughtsInitialization:
         got = GraphOfThoughts()
         assert got.identifier == str(MethodIdentifier.GRAPH_OF_THOUGHTS)
         assert got.name == "Graph of Thoughts"
-        assert got.description == "DAG-based reasoning with multiple parents, path merging, and complex dependencies"
+        assert (
+            got.description
+            == "DAG-based reasoning with multiple parents, path merging, and complex dependencies"
+        )
         assert got.category == "core"
 
     @pytest.mark.asyncio
@@ -130,7 +131,7 @@ class TestGraphOfThoughtsBasicExecution:
         got = GraphOfThoughts(branching_factor=2, max_depth=1)
         session = Session().start()
 
-        result = await got.execute(session, "Test problem")
+        await got.execute(session, "Test problem")
 
         assert session.thought_count > 0
         # Check that a root thought exists
@@ -206,10 +207,7 @@ class TestGraphOfThoughtsGraphStructure:
         await got.execute(session, "Test problem")
 
         # Find root nodes (nodes with no parent)
-        root_nodes = [
-            node for node in session.graph.nodes.values()
-            if node.parent_id is None
-        ]
+        root_nodes = [node for node in session.graph.nodes.values() if node.parent_id is None]
         assert len(root_nodes) == 1
         assert root_nodes[0].type == ThoughtType.INITIAL
 
@@ -235,8 +233,7 @@ class TestGraphOfThoughtsGraphStructure:
 
         # Count branch thoughts
         branch_thoughts = [
-            node for node in session.graph.nodes.values()
-            if node.type == ThoughtType.BRANCH
+            node for node in session.graph.nodes.values() if node.type == ThoughtType.BRANCH
         ]
         assert len(branch_thoughts) >= 3  # At least initial branching_factor
 
@@ -272,8 +269,7 @@ class TestGraphOfThoughtsMultiParentNodes:
 
         # Look for merged nodes (which have multiple parents)
         merged_nodes = [
-            node for node in session.graph.nodes.values()
-            if node.metadata.get("is_merged") is True
+            node for node in session.graph.nodes.values() if node.metadata.get("is_merged") is True
         ]
 
         # With convergence enabled, we should find merged nodes
@@ -301,8 +297,7 @@ class TestGraphOfThoughtsMultiParentNodes:
 
         # No merged nodes should exist
         merged_nodes = [
-            node for node in session.graph.nodes.values()
-            if node.metadata.get("is_merged") is True
+            node for node in session.graph.nodes.values() if node.metadata.get("is_merged") is True
         ]
         assert len(merged_nodes) == 0
 
@@ -484,8 +479,7 @@ class TestGraphOfThoughtsAggregation:
 
         # Find merged nodes
         merged_nodes = [
-            node for node in session.graph.nodes.values()
-            if node.metadata.get("is_merged") is True
+            node for node in session.graph.nodes.values() if node.metadata.get("is_merged") is True
         ]
 
         # If we have merged nodes, check their scores are reasonable
@@ -529,10 +523,7 @@ class TestGraphOfThoughtsCyclePrevention:
                 return False
 
             # Check from all potential starting nodes
-            for node_id in session.graph.nodes:
-                if has_cycle_from_node(node_id):
-                    return True
-            return False
+            return any(has_cycle_from_node(node_id) for node_id in session.graph.nodes)
 
         def has_cycle_from_node(start_id: str) -> bool:
             visited = set()

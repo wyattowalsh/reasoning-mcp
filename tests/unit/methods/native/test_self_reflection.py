@@ -18,8 +18,6 @@ The tests aim for 90%+ coverage of the SelfReflection implementation.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.self_reflection import (
@@ -29,12 +27,10 @@ from reasoning_mcp.methods.native.self_reflection import (
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -201,9 +197,7 @@ class TestSelfReflectionInitialization:
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_after_initialization(
-        self, initialized_method: SelfReflection
-    ):
+    async def test_health_check_after_initialization(self, initialized_method: SelfReflection):
         """Test health check after initialization."""
         result = await initialized_method.health_check()
         assert result is True
@@ -230,9 +224,7 @@ class TestSelfReflectionExecution:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that execute creates an INITIAL thought."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         assert isinstance(thought, ThoughtNode)
         assert thought.type == ThoughtType.INITIAL
@@ -245,9 +237,7 @@ class TestSelfReflectionExecution:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that execute sets appropriate metadata."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         assert "input" in thought.metadata
         assert thought.metadata["input"] == simple_input
@@ -261,9 +251,7 @@ class TestSelfReflectionExecution:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that execute sets initial quality score."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         assert thought.quality_score == 0.6
         assert thought.confidence == 0.6
@@ -276,9 +264,7 @@ class TestSelfReflectionExecution:
         """Test that execute adds thought to session."""
         initial_count = session.thought_count
 
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         assert session.thought_count == initial_count + 1
         assert session.current_method == MethodIdentifier.SELF_REFLECTION
@@ -337,9 +323,7 @@ class TestReflectionCycle:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that critique follows initial thought."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
 
         critique = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
@@ -355,9 +339,7 @@ class TestReflectionCycle:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that improvement follows critique."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         critique = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
         )
@@ -378,9 +360,7 @@ class TestReflectionCycle:
     ):
         """Test a complete reflection cycle: initial -> critique -> improve."""
         # Initial thought
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         assert initial.metadata["reflection_cycle"] == 0
 
         # Critique
@@ -436,9 +416,7 @@ class TestReflectionCycle:
     ):
         """Test that critique can follow improvement for next cycle."""
         # Complete first cycle
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         critique1 = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
         )
@@ -469,9 +447,7 @@ class TestConfiguration:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test default quality threshold."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
         assert thought.metadata["quality_threshold"] == SelfReflection.QUALITY_THRESHOLD
         assert thought.metadata["quality_threshold"] == 0.8
 
@@ -545,9 +521,7 @@ class TestContinueReasoning:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that continue_reasoning increments step counter."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         assert initial.step_number == 1
 
         critique = await initialized_method.continue_reasoning(
@@ -565,9 +539,7 @@ class TestContinueReasoning:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test continue_reasoning with guidance parameter."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
 
         guidance_text = "Focus on practical examples"
         critique = await initialized_method.continue_reasoning(
@@ -582,9 +554,7 @@ class TestContinueReasoning:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test continue_reasoning with context parameter."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
 
         context = {"additional_info": "test data"}
         critique = await initialized_method.continue_reasoning(
@@ -599,9 +569,7 @@ class TestContinueReasoning:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that continue_reasoning adds thought to session."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         count_after_initial = session.thought_count
 
         critique = await initialized_method.continue_reasoning(
@@ -625,9 +593,7 @@ class TestQualityImprovement:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that quality score improves with each cycle."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         initial_quality = initial.quality_score
 
         # First cycle
@@ -655,9 +621,7 @@ class TestQualityImprovement:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that confidence improves with each cycle."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         initial_confidence = initial.confidence
 
         # First cycle
@@ -676,9 +640,7 @@ class TestQualityImprovement:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that quality score caps at 1.0."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         # Run many cycles to try to exceed 1.0
         for _ in range(10):
@@ -695,9 +657,7 @@ class TestQualityImprovement:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that previous quality is stored in metadata."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         critique = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
         )
@@ -719,9 +679,7 @@ class TestIterationTracking:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that reflection_cycle increments correctly."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
         assert initialized_method._reflection_cycle == 0
 
         # Critique doesn't increment
@@ -741,12 +699,10 @@ class TestIterationTracking:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that max reflection cycles limit is respected."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         # Run until max cycles reached
-        for i in range(SelfReflection.MAX_REFLECTION_CYCLES * 2):
+        for _i in range(SelfReflection.MAX_REFLECTION_CYCLES * 2):
             thought = await initialized_method.continue_reasoning(
                 session=session, previous_thought=thought
             )
@@ -774,9 +730,7 @@ class TestIterationTracking:
     ):
         """Test that step counter resets on new execute."""
         # First execution
-        thought1 = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought1 = await initialized_method.execute(session=session, input_text=simple_input)
         assert thought1.step_number == 1
 
         # Continue
@@ -787,9 +741,7 @@ class TestIterationTracking:
 
         # New execution should reset
         session2 = Session().start()
-        thought3 = await initialized_method.execute(
-            session=session2, input_text=simple_input
-        )
+        thought3 = await initialized_method.execute(session=session2, input_text=simple_input)
         assert thought3.step_number == 1
 
 
@@ -860,7 +812,6 @@ class TestConvergenceDetection:
 
         # Run until conclusion
         for _ in range(10):
-            prev_thought = thought
             thought = await initialized_method.continue_reasoning(
                 session=session, previous_thought=thought
             )
@@ -880,18 +831,14 @@ class TestEdgeCases:
     """Test suite for edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_empty_input(
-        self, initialized_method: SelfReflection, session: Session
-    ):
+    async def test_empty_input(self, initialized_method: SelfReflection, session: Session):
         """Test handling of empty input."""
         thought = await initialized_method.execute(session=session, input_text="")
         assert thought.metadata["input"] == ""
         assert isinstance(thought.content, str)
 
     @pytest.mark.asyncio
-    async def test_very_long_input(
-        self, initialized_method: SelfReflection, session: Session
-    ):
+    async def test_very_long_input(self, initialized_method: SelfReflection, session: Session):
         """Test handling of very long input."""
         long_input = "What is " + "very " * 1000 + "important?"
         thought = await initialized_method.execute(session=session, input_text=long_input)
@@ -923,9 +870,7 @@ class TestEdgeCases:
     ):
         """Test fallback to critique for unknown phase."""
         # Create a thought with unknown phase
-        initial = await initialized_method.execute(
-            session=session, input_text="Test"
-        )
+        initial = await initialized_method.execute(session=session, input_text="Test")
 
         # Manually modify phase to unknown value
         initial.metadata["phase"] = "unknown_phase"
@@ -1030,9 +975,7 @@ class TestContentGeneration:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that initial response has expected content structure."""
-        thought = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=session, input_text=simple_input)
 
         content = thought.content
         assert isinstance(content, str)
@@ -1046,9 +989,7 @@ class TestContentGeneration:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that critique has expected content structure."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         critique = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
         )
@@ -1063,9 +1004,7 @@ class TestContentGeneration:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that improvement has expected content structure."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
         critique = await initialized_method.continue_reasoning(
             session=session, previous_thought=initial
         )
@@ -1082,9 +1021,7 @@ class TestContentGeneration:
         self, initialized_method: SelfReflection, session: Session, simple_input: str
     ):
         """Test that guidance appears in generated content."""
-        initial = await initialized_method.execute(
-            session=session, input_text=simple_input
-        )
+        initial = await initialized_method.execute(session=session, input_text=simple_input)
 
         guidance = "Focus on practical examples"
         critique = await initialized_method.continue_reasoning(

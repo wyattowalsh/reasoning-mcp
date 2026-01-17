@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 SLM_MUX_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.SLM_MUX,
@@ -71,17 +70,17 @@ class SlmMux:
         for i, solution in enumerate(solutions):
             weight = self._slm_weights.get(f"slm_{i}", 1.0 / len(solutions))
             weighted_solutions.append((solution, weight))
-        
+
         # Select best solution by weight-adjusted scoring
         best_solution = self._weighted_selection(weighted_solutions)
-        
+
         return best_solution
 
     def _weighted_selection(self, weighted_solutions: list[tuple[str, float]]) -> str:
         """Select best solution with weighting."""
         if not weighted_solutions:
             return ""
-        
+
         scored = []
         for solution, weight in weighted_solutions:
             # Simple quality heuristic
@@ -92,9 +91,9 @@ class SlmMux:
                 quality += 0.1
             if "=" in solution:
                 quality += 0.1
-            
+
             scored.append((solution, quality * weight))
-        
+
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[0][0]
 
@@ -110,12 +109,12 @@ class SlmMux:
 
         # Update active SLMs
         self._active_slms = list(slm_outputs.keys())
-        
+
         # Initialize equal weights if not set
         if not self._slm_weights:
             for slm in self._active_slms:
                 self._slm_weights[slm] = 1.0 / len(self._active_slms)
-        
+
         # Combine using multiplexing strategy
         solutions = list(slm_outputs.values())
         return await self.ensemble(query, solutions, context)
@@ -131,7 +130,7 @@ class SlmMux:
             raise RuntimeError("SLM-MUX must be initialized")
 
         # Select up to max_models SLMs
-        return available_models[:SLM_MUX_METADATA.max_models]
+        return available_models[: SLM_MUX_METADATA.max_models]
 
     async def health_check(self) -> bool:
         return self._initialized

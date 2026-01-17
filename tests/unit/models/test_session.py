@@ -17,7 +17,6 @@ Each model is tested for:
 """
 
 from datetime import datetime
-from typing import Any
 
 import pytest
 from pydantic import BaseModel, ValidationError
@@ -25,7 +24,6 @@ from pydantic import BaseModel, ValidationError
 from reasoning_mcp.models.core import MethodIdentifier, SessionStatus, ThoughtType
 from reasoning_mcp.models.session import Session, SessionConfig, SessionMetrics
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -307,7 +305,10 @@ class TestSessionMetricsCreation:
             branches_created=2,
             max_depth_reached=5,
             average_confidence=0.85,
-            methods_used={MethodIdentifier.CHAIN_OF_THOUGHT: 5, MethodIdentifier.TREE_OF_THOUGHTS: 5},
+            methods_used={
+                MethodIdentifier.CHAIN_OF_THOUGHT: 5,
+                MethodIdentifier.TREE_OF_THOUGHTS: 5,
+            },
             thought_types={ThoughtType.INITIAL: 1, ThoughtType.CONTINUATION: 9},
             last_updated=now,
         )

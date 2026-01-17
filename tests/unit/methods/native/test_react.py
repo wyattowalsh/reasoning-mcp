@@ -7,7 +7,6 @@ configuration options, continuation, termination, and error handling.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
 from uuid import uuid4
 
 import pytest
@@ -20,9 +19,6 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
-if TYPE_CHECKING:
-    from reasoning_mcp.models.session import Session as SessionType
 
 
 @pytest.fixture
@@ -94,9 +90,7 @@ class TestReActMethodInitialization:
         """Test health_check() returns False before initialization."""
         assert await react_method.health_check() is False
 
-    async def test_health_check_after_initialize(
-        self, initialized_method: ReActMethod
-    ) -> None:
+    async def test_health_check_after_initialize(self, initialized_method: ReActMethod) -> None:
         """Test health_check() returns True after initialization."""
         assert await initialized_method.health_check() is True
 
@@ -165,9 +159,7 @@ class TestReActMethodMetadata:
 class TestReActBasicExecution:
     """Tests for basic ReActMethod execution."""
 
-    async def test_execute_requires_active_session(
-        self, initialized_method: ReActMethod
-    ) -> None:
+    async def test_execute_requires_active_session(self, initialized_method: ReActMethod) -> None:
         """Test execute() raises ValueError for inactive session."""
         inactive_session = Session()  # Not started
         with pytest.raises(ValueError, match="Session must be active"):
@@ -180,7 +172,7 @@ class TestReActBasicExecution:
         self, initialized_method: ReActMethod, active_session: Session
     ) -> None:
         """Test execute() creates an initial thought."""
-        result = await initialized_method.execute(
+        await initialized_method.execute(
             session=active_session,
             input_text="How can I find the population of Tokyo?",
         )
@@ -303,11 +295,12 @@ class TestReActActionSimulation:
         thoughts = list(active_session.graph.nodes.values())
         actions = [t for t in thoughts if t.type == ThoughtType.ACTION]
 
-        # All actions should have tool_used metadata
+        # All actions should have tool_used and sampled metadata
         for action in actions:
             assert "tool_used" in action.metadata
-            assert "simulated" in action.metadata
-            assert action.metadata["simulated"] is True
+            assert "sampled" in action.metadata
+            # Without execution_context, sampled should be False (placeholder mode)
+            assert action.metadata["sampled"] is False
 
     async def test_actions_use_available_tools(
         self, initialized_method: ReActMethod, active_session: Session
@@ -431,9 +424,7 @@ class TestReActConfiguration:
         assert len(observations) > 0
 
         # Check for initial observation thought
-        initial_obs_thoughts = [
-            t for t in observations if "Initial Observations" in t.content
-        ]
+        initial_obs_thoughts = [t for t in observations if "Initial Observations" in t.content]
         assert len(initial_obs_thoughts) > 0
 
         # Check content includes initial observations
@@ -885,7 +876,7 @@ class TestReActIntegration:
         self, initialized_method: ReActMethod, active_session: Session
     ) -> None:
         """Test ReAct executes multiple reasoning cycles."""
-        result = await initialized_method.execute(
+        await initialized_method.execute(
             session=active_session,
             input_text="Complex problem requiring multiple steps",
             context={"max_cycles": 5},

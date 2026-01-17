@@ -15,12 +15,23 @@ All models use Pydantic v2 for validation, serialization, and type safety.
 
 from __future__ import annotations
 
+from reasoning_mcp.models.component import ComponentType
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
     PipelineStageType,
     SessionStatus,
     ThoughtType,
+)
+from reasoning_mcp.models.cost import (
+    Budget,
+    BudgetStatus,
+    CostBreakdown,
+    CostEstimate,
+    CostUnit,
+    ModelPricing,
+    PricingTier,
+    TokenCount,
 )
 from reasoning_mcp.models.pipeline import (
     Accumulator,
@@ -49,9 +60,9 @@ from reasoning_mcp.models.tools import (
     EvaluationReport,
     MergeOutput,
     MethodInfo,
-    Recommendation,
     ReasonHints,
     ReasonOutput,
+    Recommendation,
     SessionState,
     SuggestionOutput,
     ThoughtOutput,
@@ -60,6 +71,7 @@ from reasoning_mcp.models.tools import (
 
 __all__ = [
     # Core enumerations
+    "ComponentType",
     "MethodIdentifier",
     "MethodCategory",
     "ThoughtType",
@@ -106,4 +118,13 @@ __all__ = [
     "Recommendation",
     "ComparisonResult",
     "EvaluationReport",
+    # Cost models
+    "TokenCount",
+    "CostUnit",
+    "CostBreakdown",
+    "PricingTier",
+    "ModelPricing",
+    "Budget",
+    "BudgetStatus",
+    "CostEstimate",
 ]

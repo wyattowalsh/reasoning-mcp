@@ -11,14 +11,15 @@ from typing import TYPE_CHECKING
 
 from mcp.types import PromptMessage, TextContent
 
-from reasoning_mcp.registry import MethodRegistry
 from reasoning_mcp.selector import MethodSelector, SelectionConstraint
 
 if TYPE_CHECKING:
     from mcp.server.fastmcp import FastMCP
 
+    from reasoning_mcp.server import AppContext
 
-def register_guided_prompts(mcp: "FastMCP") -> None:
+
+def register_guided_prompts(mcp: FastMCP) -> None:
     """Register guided reasoning prompts with the server.
 
     This function registers two prompts:
@@ -63,7 +64,6 @@ def register_guided_prompts(mcp: "FastMCP") -> None:
             ... )
         """
         # Get app context from server
-        from reasoning_mcp.server import AppContext
 
         ctx: AppContext = mcp.app_context
 
@@ -114,8 +114,12 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
 
         # Capabilities
         guidance_parts.append("\n\n## Capabilities")
-        guidance_parts.append(f"\n- Supports branching: {'Yes' if metadata.supports_branching else 'No'}")
-        guidance_parts.append(f"\n- Supports revision: {'Yes' if metadata.supports_revision else 'No'}")
+        guidance_parts.append(
+            f"\n- Supports branching: {'Yes' if metadata.supports_branching else 'No'}"
+        )
+        guidance_parts.append(
+            f"\n- Supports revision: {'Yes' if metadata.supports_revision else 'No'}"
+        )
         guidance_parts.append(
             f"\n- Expected depth: {metadata.min_thoughts}-{metadata.max_thoughts} thoughts"
         )
@@ -123,8 +127,10 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
         # Step-by-step instructions
         guidance_parts.append("\n\n## How to Use This Method")
         guidance_parts.append("\n\n1. **Start the reasoning session**")
-        guidance_parts.append(f"\n   - Use the `reason` tool with `method=\"{method_id}\"`")
-        guidance_parts.append(f"\n   - Provide your problem: `{problem[:100]}{'...' if len(problem) > 100 else ''}`")
+        guidance_parts.append(f'\n   - Use the `reason` tool with `method="{method_id}"`')
+        guidance_parts.append(
+            f"\n   - Provide your problem: `{problem[:100]}{'...' if len(problem) > 100 else ''}`"
+        )
 
         guidance_parts.append("\n\n2. **Follow the method's structure**")
         if method_id == "chain_of_thought":
@@ -138,17 +144,23 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
             guidance_parts.append("\n   - Explore the most promising directions")
         elif method_id == "ethical_reasoning":
             guidance_parts.append("\n   - Identify stakeholders and their interests")
-            guidance_parts.append("\n   - Apply multiple ethical frameworks (utilitarian, deontological, virtue ethics)")
+            guidance_parts.append(
+                "\n   - Apply multiple ethical frameworks (utilitarian, deontological, virtue ethics)"
+            )
             guidance_parts.append("\n   - Consider short and long-term consequences")
             guidance_parts.append("\n   - Synthesize insights across frameworks")
         elif method_id == "react":
-            guidance_parts.append("\n   - Alternate between reasoning (Thought) and acting (Action)")
+            guidance_parts.append(
+                "\n   - Alternate between reasoning (Thought) and acting (Action)"
+            )
             guidance_parts.append("\n   - After each action, observe the result")
             guidance_parts.append("\n   - Use observations to inform next thought")
             guidance_parts.append("\n   - Iterate until the problem is solved")
         else:
             guidance_parts.append("\n   - Follow the natural flow of this method")
-            guidance_parts.append(f"\n   - Expect {metadata.min_thoughts}-{metadata.max_thoughts} reasoning steps")
+            guidance_parts.append(
+                f"\n   - Expect {metadata.min_thoughts}-{metadata.max_thoughts} reasoning steps"
+            )
             if metadata.supports_branching:
                 guidance_parts.append("\n   - Use branching when exploring alternatives")
             if metadata.supports_revision:
@@ -171,7 +183,9 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
         guidance_parts.append("\n\nEach reasoning step will produce:")
         guidance_parts.append("\n- **Thought content**: The actual reasoning for this step")
         guidance_parts.append("\n- **Confidence**: How confident the reasoning is (0.0-1.0)")
-        guidance_parts.append("\n- **Type**: The type of thought (initial, continuation, branch, etc.)")
+        guidance_parts.append(
+            "\n- **Type**: The type of thought (initial, continuation, branch, etc.)"
+        )
         guidance_parts.append("\n- **Metadata**: Additional context about the thought")
 
         # Tags for context
@@ -185,7 +199,9 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
 
         guidance_parts.append("\n\n## Next Steps")
         guidance_parts.append(f"\n\nTo begin reasoning with {metadata.name}:")
-        guidance_parts.append(f"\n```python\nreason(problem=\"{problem[:80]}...\", method=\"{method_id}\")\n```")
+        guidance_parts.append(
+            f'\n```python\nreason(problem="{problem[:80]}...", method="{method_id}")\n```'
+        )
 
         guidance_text = "".join(guidance_parts)
 
@@ -232,7 +248,6 @@ For method recommendations, use 'methods_recommend' with your problem descriptio
             ... )
         """
         # Get app context from server
-        from reasoning_mcp.server import AppContext
 
         ctx: AppContext = mcp.app_context
 
@@ -278,7 +293,7 @@ Try:
                 method_metadata.append(metadata)
 
         if not method_metadata:
-            error_text = f"""None of the specified methods were found: {', '.join(method_ids)}
+            error_text = f"""None of the specified methods were found: {", ".join(method_ids)}
 
 Use `methods_list` to see available methods."""
 
@@ -458,13 +473,13 @@ Use `methods_list` to see available methods."""
         if sorted_metadata:
             top_id = str(sorted_metadata[0].identifier)
             comparison_parts.append(
-                f"\n```python\nreason(problem=\"{problem[:80]}...\", method=\"{top_id}\")\n```"
+                f'\n```python\nreason(problem="{problem[:80]}...", method="{top_id}")\n```'
             )
 
         comparison_parts.append(
             "\n\nTo explore how a specific method works:\n"
             "```python\n"
-            "reason_with_method(method_id=\"METHOD_ID\", problem=\"YOUR_PROBLEM\")\n"
+            'reason_with_method(method_id="METHOD_ID", problem="YOUR_PROBLEM")\n'
             "```"
         )
 

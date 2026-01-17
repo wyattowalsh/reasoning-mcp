@@ -7,8 +7,6 @@ continuation reasoning, bug detection, and edge cases.
 
 from __future__ import annotations
 
-from uuid import uuid4
-
 import pytest
 
 from reasoning_mcp.methods.native.code import CodeReasoning
@@ -114,20 +112,20 @@ def divide(a, b):
         thought = await code_method.execute(session, code)
 
         # Verify ThoughtNode properties
-        assert hasattr(thought, 'id')
-        assert hasattr(thought, 'type')
-        assert hasattr(thought, 'method_id')
-        assert hasattr(thought, 'content')
-        assert hasattr(thought, 'confidence')
-        assert hasattr(thought, 'quality_score')
-        assert hasattr(thought, 'metadata')
+        assert hasattr(thought, "id")
+        assert hasattr(thought, "type")
+        assert hasattr(thought, "method_id")
+        assert hasattr(thought, "content")
+        assert hasattr(thought, "confidence")
+        assert hasattr(thought, "quality_score")
+        assert hasattr(thought, "metadata")
 
         # Verify metadata
-        assert 'language' in thought.metadata
-        assert 'has_error' in thought.metadata
-        assert 'focus' in thought.metadata
-        assert 'issues_count' in thought.metadata
-        assert 'supports_branching' in thought.metadata
+        assert "language" in thought.metadata
+        assert "has_error" in thought.metadata
+        assert "focus" in thought.metadata
+        assert "issues_count" in thought.metadata
+        assert "supports_branching" in thought.metadata
 
     @pytest.mark.asyncio
     async def test_execute_with_empty_context(self, code_method, session):
@@ -136,7 +134,7 @@ def divide(a, b):
         thought = await code_method.execute(session, code, context={})
 
         assert thought is not None
-        assert thought.metadata['has_error'] is False
+        assert thought.metadata["has_error"] is False
 
 
 class TestCodeAnalysisPhases:
@@ -210,22 +208,18 @@ class TestCodeReasoningConfiguration:
     async def test_language_hint_python(self, code_method, session):
         """Test language hint for Python."""
         code = "print('hello')"
-        thought = await code_method.execute(
-            session, code, context={"language": "python"}
-        )
+        thought = await code_method.execute(session, code, context={"language": "python"})
 
-        assert thought.metadata['language'] == "python"
+        assert thought.metadata["language"] == "python"
         assert "python" in thought.content.lower()
 
     @pytest.mark.asyncio
     async def test_language_hint_javascript(self, code_method, session):
         """Test language hint for JavaScript."""
         code = "console.log('hello');"
-        thought = await code_method.execute(
-            session, code, context={"language": "javascript"}
-        )
+        thought = await code_method.execute(session, code, context={"language": "javascript"})
 
-        assert thought.metadata['language'] == "javascript"
+        assert thought.metadata["language"] == "javascript"
 
     @pytest.mark.asyncio
     async def test_language_auto_detection_python(self, code_method, session):
@@ -237,7 +231,7 @@ def my_function():
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "python"
+        assert thought.metadata["language"] == "python"
 
     @pytest.mark.asyncio
     async def test_language_auto_detection_javascript(self, code_method, session):
@@ -250,49 +244,41 @@ function myFunc() {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "javascript"
+        assert thought.metadata["language"] == "javascript"
 
     @pytest.mark.asyncio
     async def test_focus_correctness(self, code_method, session):
         """Test focus option for correctness (default)."""
         code = "x = 1"
-        thought = await code_method.execute(
-            session, code, context={"focus": "correctness"}
-        )
+        thought = await code_method.execute(session, code, context={"focus": "correctness"})
 
-        assert thought.metadata['focus'] == "correctness"
+        assert thought.metadata["focus"] == "correctness"
 
     @pytest.mark.asyncio
     async def test_focus_performance(self, code_method, session):
         """Test focus option for performance."""
         code = "result = [x**2 for x in range(1000)]"
-        thought = await code_method.execute(
-            session, code, context={"focus": "performance"}
-        )
+        thought = await code_method.execute(session, code, context={"focus": "performance"})
 
-        assert thought.metadata['focus'] == "performance"
+        assert thought.metadata["focus"] == "performance"
         assert "performance" in thought.content.lower()
 
     @pytest.mark.asyncio
     async def test_focus_security(self, code_method, session):
         """Test focus option for security."""
         code = "user_input = input()"
-        thought = await code_method.execute(
-            session, code, context={"focus": "security"}
-        )
+        thought = await code_method.execute(session, code, context={"focus": "security"})
 
-        assert thought.metadata['focus'] == "security"
+        assert thought.metadata["focus"] == "security"
         assert "security" in thought.content.lower()
 
     @pytest.mark.asyncio
     async def test_focus_readability(self, code_method, session):
         """Test focus option for readability."""
         code = "x=1;y=2;z=x+y"
-        thought = await code_method.execute(
-            session, code, context={"focus": "readability"}
-        )
+        thought = await code_method.execute(session, code, context={"focus": "readability"})
 
-        assert thought.metadata['focus'] == "readability"
+        assert thought.metadata["focus"] == "readability"
         assert "readability" in thought.content.lower()
 
     @pytest.mark.asyncio
@@ -301,11 +287,9 @@ function myFunc() {
         code = "def func(): return undefined_var"
         error = "NameError: name 'undefined_var' is not defined"
 
-        thought = await code_method.execute(
-            session, code, context={"error_message": error}
-        )
+        thought = await code_method.execute(session, code, context={"error_message": error})
 
-        assert thought.metadata['has_error'] is True
+        assert thought.metadata["has_error"] is True
         assert "Error Context" in thought.content
 
     @pytest.mark.asyncio
@@ -319,7 +303,7 @@ Error: ZeroDivisionError: division by zero
 """
         thought = await code_method.execute(session, code_with_error)
 
-        assert thought.metadata['has_error'] is True
+        assert thought.metadata["has_error"] is True
         assert "Error Context" in thought.content
 
 
@@ -374,7 +358,7 @@ class TestContinueReasoning:
         )
 
         assert continuation is not None
-        assert continuation.metadata['focus'] == "performance"
+        assert continuation.metadata["focus"] == "performance"
         assert "performance" in continuation.content.lower()
 
     @pytest.mark.asyncio
@@ -388,7 +372,7 @@ class TestContinueReasoning:
         )
 
         assert continuation is not None
-        assert continuation.metadata['focus'] == "security"
+        assert continuation.metadata["focus"] == "security"
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_focus_readability(self, code_method, session):
@@ -401,7 +385,7 @@ class TestContinueReasoning:
         )
 
         assert continuation is not None
-        assert continuation.metadata['focus'] == "readability"
+        assert continuation.metadata["focus"] == "readability"
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_without_guidance(self, code_method, session):
@@ -413,7 +397,7 @@ class TestContinueReasoning:
 
         assert continuation is not None
         assert continuation.type == ThoughtType.CONTINUATION
-        assert continuation.metadata['focus'] == "alternative approach"
+        assert continuation.metadata["focus"] == "alternative approach"
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_preserves_branch_id(self, code_method, session):
@@ -435,13 +419,11 @@ class TestContinueReasoning:
         initial = await code_method.execute(session, initial_code)
 
         continuation = await code_method.continue_reasoning(
-            session,
-            initial,
-            context={"focus": "testing", "branch_id": "custom_branch"}
+            session, initial, context={"focus": "testing", "branch_id": "custom_branch"}
         )
 
         assert continuation is not None
-        assert continuation.metadata['focus'] == "testing"
+        assert continuation.metadata["focus"] == "testing"
 
 
 class TestBugDetection:
@@ -461,11 +443,9 @@ class TestBugDetection:
         code = "print(undefined_variable)"
         error = "NameError: name 'undefined_variable' is not defined"
 
-        thought = await code_method.execute(
-            session, code, context={"error_message": error}
-        )
+        thought = await code_method.execute(session, code, context={"error_message": error})
 
-        assert thought.metadata['has_error'] is True
+        assert thought.metadata["has_error"] is True
         assert thought.confidence > 0.8  # Higher confidence with error message
 
     @pytest.mark.asyncio
@@ -632,7 +612,7 @@ class Calculator:
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "python"
+        assert thought.metadata["language"] == "python"
 
     @pytest.mark.asyncio
     async def test_javascript_detection(self, code_method, session):
@@ -645,7 +625,7 @@ function calculate(x, y) {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "javascript"
+        assert thought.metadata["language"] == "javascript"
 
     @pytest.mark.asyncio
     async def test_typescript_detection(self, code_method, session):
@@ -662,7 +642,7 @@ function greet(user: User): string {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "typescript"
+        assert thought.metadata["language"] == "typescript"
 
     @pytest.mark.asyncio
     async def test_java_detection(self, code_method, session):
@@ -678,7 +658,7 @@ public class MyClass {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "java"
+        assert thought.metadata["language"] == "java"
 
     @pytest.mark.asyncio
     async def test_cpp_detection(self, code_method, session):
@@ -695,7 +675,7 @@ namespace myapp {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "c++"
+        assert thought.metadata["language"] == "c++"
 
     @pytest.mark.asyncio
     async def test_rust_detection(self, code_method, session):
@@ -710,7 +690,7 @@ fn main() {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "rust"
+        assert thought.metadata["language"] == "rust"
 
     @pytest.mark.asyncio
     async def test_go_detection(self, code_method, session):
@@ -727,7 +707,7 @@ func main() {
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "go"
+        assert thought.metadata["language"] == "go"
 
     @pytest.mark.asyncio
     async def test_unknown_language(self, code_method, session):
@@ -739,7 +719,7 @@ any language patterns
 """
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['language'] == "unknown"
+        assert thought.metadata["language"] == "unknown"
 
 
 class TestEdgeCases:
@@ -779,7 +759,7 @@ class TestEdgeCases:
         thought = await code_method.execute(session, code)
 
         assert thought is not None
-        assert thought.metadata['issues_count'] >= 0
+        assert thought.metadata["issues_count"] >= 0
 
     @pytest.mark.asyncio
     async def test_code_with_comments_only(self, code_method, session):
@@ -811,7 +791,7 @@ END ALGORITHM
         thought = await code_method.execute(session, code)
 
         assert thought is not None
-        assert thought.metadata['language'] == "unknown"
+        assert thought.metadata["language"] == "unknown"
 
     @pytest.mark.asyncio
     async def test_incomplete_code(self, code_method, session):
@@ -851,7 +831,7 @@ def process():
         thought = await code_method.execute(session, code)
 
         assert thought is not None
-        assert thought.metadata['language'] == "python"
+        assert thought.metadata["language"] == "python"
 
     @pytest.mark.asyncio
     async def test_multiple_error_markers(self, code_method, session):
@@ -867,7 +847,7 @@ Exception: Another exception
         thought = await code_method.execute(session, code)
 
         # Should extract first error marker
-        assert thought.metadata['has_error'] is True
+        assert thought.metadata["has_error"] is True
 
     @pytest.mark.asyncio
     async def test_confidence_calculation(self, code_method, session):
@@ -912,7 +892,7 @@ def buggy(items=[]):
         code = "x = 1"
         thought = await code_method.execute(session, code)
 
-        assert thought.metadata['supports_branching'] is True
+        assert thought.metadata["supports_branching"] is True
 
     @pytest.mark.asyncio
     async def test_step_number_increments(self, code_method, session):

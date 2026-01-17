@@ -14,15 +14,12 @@ testing all aspects of the self-ask reasoning pattern including:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.self_ask import SELF_ASK_METADATA, SelfAsk
 from reasoning_mcp.models.core import MethodIdentifier, ThoughtType
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -201,9 +198,7 @@ class TestSelfAskExecution:
         assert 0.0 <= result.confidence <= 1.0
 
     @pytest.mark.asyncio
-    async def test_execute_creates_initial_thought(
-        self, initialized_method, active_session
-    ):
+    async def test_execute_creates_initial_thought(self, initialized_method, active_session):
         """Test that execute creates an INITIAL thought."""
         result = await initialized_method.execute(
             session=active_session,
@@ -241,9 +236,7 @@ class TestSelfAskExecution:
         assert result.metadata["context"] == context
 
     @pytest.mark.asyncio
-    async def test_execute_adds_thought_to_session(
-        self, initialized_method, active_session
-    ):
+    async def test_execute_adds_thought_to_session(self, initialized_method, active_session):
         """Test that execute adds the thought to the session."""
         initial_count = active_session.thought_count
 
@@ -301,9 +294,7 @@ class TestSelfAskContinueReasoning:
             )
 
     @pytest.mark.asyncio
-    async def test_continue_increments_step_counter(
-        self, initialized_method, active_session
-    ):
+    async def test_continue_increments_step_counter(self, initialized_method, active_session):
         """Test that continue_reasoning increments the step counter."""
         # Execute first
         first_thought = await initialized_method.execute(
@@ -337,9 +328,7 @@ class TestSelfAskContinueReasoning:
         assert second_thought.depth == first_thought.depth + 1
 
     @pytest.mark.asyncio
-    async def test_continue_adds_thought_to_session(
-        self, initialized_method, active_session
-    ):
+    async def test_continue_adds_thought_to_session(self, initialized_method, active_session):
         """Test that continue_reasoning adds the thought to the session."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -403,9 +392,7 @@ class TestSelfAskQuestionGeneration:
         assert len(initialized_method._question_stack) == 1
 
     @pytest.mark.asyncio
-    async def test_multiple_subquestions_generation(
-        self, initialized_method, active_session
-    ):
+    async def test_multiple_subquestions_generation(self, initialized_method, active_session):
         """Test generating multiple sub-questions."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -527,9 +514,7 @@ class TestSelfAskSynthesis:
     """Test suite for synthesizing answers."""
 
     @pytest.mark.asyncio
-    async def test_synthesis_creates_synthesis_thought(
-        self, initialized_method, active_session
-    ):
+    async def test_synthesis_creates_synthesis_thought(self, initialized_method, active_session):
         """Test that synthesis creates a SYNTHESIS thought type."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -547,9 +532,7 @@ class TestSelfAskSynthesis:
         assert "Synthesis" in synthesis.content
 
     @pytest.mark.asyncio
-    async def test_synthesis_includes_answered_questions(
-        self, initialized_method, active_session
-    ):
+    async def test_synthesis_includes_answered_questions(self, initialized_method, active_session):
         """Test that synthesis includes information about answered questions."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -581,9 +564,7 @@ class TestSelfAskConclusion:
     """Test suite for generating conclusions."""
 
     @pytest.mark.asyncio
-    async def test_conclusion_creates_conclusion_thought(
-        self, initialized_method, active_session
-    ):
+    async def test_conclusion_creates_conclusion_thought(self, initialized_method, active_session):
         """Test that conclusion creates a CONCLUSION thought type."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -600,9 +581,7 @@ class TestSelfAskConclusion:
         assert "Final Answer" in conclusion.content
 
     @pytest.mark.asyncio
-    async def test_conclusion_includes_main_question(
-        self, initialized_method, active_session
-    ):
+    async def test_conclusion_includes_main_question(self, initialized_method, active_session):
         """Test that conclusion includes the original main question."""
         main_question = "How does evolution work?"
         first_thought = await initialized_method.execute(
@@ -747,9 +726,7 @@ class TestSelfAskConfidenceCalculation:
         assert result.confidence > 0.5
 
     @pytest.mark.asyncio
-    async def test_confidence_within_valid_range(
-        self, initialized_method, active_session
-    ):
+    async def test_confidence_within_valid_range(self, initialized_method, active_session):
         """Test that confidence is always within valid range [0, 1]."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -757,9 +734,7 @@ class TestSelfAskConfidenceCalculation:
         )
 
         # Test with many answered questions
-        initialized_method._answered_questions = {
-            f"q{i}": f"a{i}" for i in range(20)
-        }
+        initialized_method._answered_questions = {f"q{i}": f"a{i}" for i in range(20)}
 
         result = await initialized_method.continue_reasoning(
             session=active_session,
@@ -778,9 +753,7 @@ class TestSelfAskMetadataTracking:
     """Test suite for metadata tracking in thoughts."""
 
     @pytest.mark.asyncio
-    async def test_metadata_tracks_pending_questions(
-        self, initialized_method, active_session
-    ):
+    async def test_metadata_tracks_pending_questions(self, initialized_method, active_session):
         """Test that metadata tracks the number of pending questions."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -798,9 +771,7 @@ class TestSelfAskMetadataTracking:
         assert "pending_questions" in result.metadata
 
     @pytest.mark.asyncio
-    async def test_metadata_tracks_answered_count(
-        self, initialized_method, active_session
-    ):
+    async def test_metadata_tracks_answered_count(self, initialized_method, active_session):
         """Test that metadata tracks the number of answered questions."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -835,9 +806,7 @@ class TestSelfAskMetadataTracking:
         assert result.metadata["phase"] == "generate_subquestion"
 
     @pytest.mark.asyncio
-    async def test_metadata_includes_guidance(
-        self, initialized_method, active_session
-    ):
+    async def test_metadata_includes_guidance(self, initialized_method, active_session):
         """Test that metadata includes the guidance provided."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -930,9 +899,7 @@ class TestSelfAskEdgeCases:
         assert result.metadata["context"] == {}
 
     @pytest.mark.asyncio
-    async def test_continue_with_none_guidance(
-        self, initialized_method, active_session
-    ):
+    async def test_continue_with_none_guidance(self, initialized_method, active_session):
         """Test continue_reasoning with None guidance."""
         first_thought = await initialized_method.execute(
             session=active_session,
@@ -980,7 +947,7 @@ class TestSelfAskEdgeCases:
 
         # Multiple continues
         thoughts = [first_thought]
-        for i in range(5):
+        for _i in range(5):
             next_thought = await initialized_method.continue_reasoning(
                 session=active_session,
                 previous_thought=thoughts[-1],
@@ -992,9 +959,7 @@ class TestSelfAskEdgeCases:
             assert thought.step_number == i + 1
 
     @pytest.mark.asyncio
-    async def test_context_preserved_across_continues(
-        self, initialized_method, active_session
-    ):
+    async def test_context_preserved_across_continues(self, initialized_method, active_session):
         """Test that context from execute is available in metadata."""
         context = {"domain": "biology", "level": "advanced"}
         first_thought = await initialized_method.execute(
@@ -1097,9 +1062,7 @@ class TestSelfAskIntegration:
         assert active_session.metrics.total_thoughts == 2
 
     @pytest.mark.asyncio
-    async def test_multiple_executions_in_same_session(
-        self, initialized_method, active_session
-    ):
+    async def test_multiple_executions_in_same_session(self, initialized_method, active_session):
         """Test executing multiple times resets state correctly."""
         # First execution
         result1 = await initialized_method.execute(

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 TRAINING_FREE_ORCHESTRATION_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.TRAINING_FREE_ORCHESTRATION,
@@ -72,20 +71,20 @@ class TrainingFreeOrchestration:
 
         # Simple rule-based orchestration
         task_type = self._classify_task(query)
-        
+
         # Score solutions based on task type
         scored = []
         for solution in solutions:
             score = self._score_for_task(solution, task_type)
             scored.append((solution, score))
-        
+
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[0][0]
 
     def _classify_task(self, query: str) -> str:
         """Classify task type from query."""
         query_lower = query.lower()
-        
+
         if any(word in query_lower for word in ["calculate", "solve", "equation", "math"]):
             return "math"
         elif any(word in query_lower for word in ["code", "function", "program", "bug"]):
@@ -99,7 +98,7 @@ class TrainingFreeOrchestration:
         """Score solution for task type."""
         score = 0.5
         solution_lower = solution.lower()
-        
+
         if task_type == "math":
             if any(c.isdigit() for c in solution):
                 score += 0.2
@@ -114,7 +113,7 @@ class TrainingFreeOrchestration:
         else:
             if len(solution) > 50:
                 score += 0.2
-        
+
         return min(1.0, score)
 
     async def orchestrate(
@@ -128,11 +127,11 @@ class TrainingFreeOrchestration:
             raise RuntimeError("Training-Free Orchestration must be initialized")
 
         task_type = self._classify_task(query)
-        
+
         # Find best specialist for task
         best_output = ""
         best_score = 0.0
-        
+
         for specialist, output in specialist_outputs.items():
             # Check if specialist matches task
             relevance = 0.5
@@ -140,12 +139,12 @@ class TrainingFreeOrchestration:
                 if specialist in specialists and category == task_type:
                     relevance = 1.0
                     break
-            
+
             score = self._score_for_task(output, task_type) * relevance
             if score > best_score:
                 best_score = score
                 best_output = output
-        
+
         return best_output or list(specialist_outputs.values())[0] if specialist_outputs else ""
 
     async def select_models(
@@ -159,18 +158,18 @@ class TrainingFreeOrchestration:
             raise RuntimeError("Training-Free Orchestration must be initialized")
 
         task_type = self._classify_task(query)
-        
+
         # Prioritize relevant specialists
         relevant = self._specialist_registry.get(task_type, [])
         selected = [m for m in available_models if m in relevant]
-        
+
         # Add others up to max
         for m in available_models:
             if m not in selected:
                 selected.append(m)
             if len(selected) >= TRAINING_FREE_ORCHESTRATION_METADATA.max_models:
                 break
-        
+
         return selected
 
     async def health_check(self) -> bool:

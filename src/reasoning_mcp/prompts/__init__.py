@@ -3,11 +3,16 @@
 This module contains MCP prompt functions for guided reasoning and pipeline workflows.
 """
 
+from typing import TYPE_CHECKING
+
 from reasoning_mcp.prompts.guided import register_guided_prompts
 from reasoning_mcp.prompts.pipelines import register_pipeline_prompts
 
+if TYPE_CHECKING:
+    from mcp.server.fastmcp import FastMCP
 
-def register_all_prompts(mcp):
+
+def register_all_prompts(mcp: "FastMCP") -> None:
     """Register all MCP prompts with the FastMCP server.
 
     This function registers all prompt categories with the provided FastMCP instance:

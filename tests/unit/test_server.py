@@ -12,7 +12,6 @@ from reasoning_mcp.server import (
     get_auth_provider,
     get_sampling_handler,
     mcp,
-    register_middleware,
 )
 
 
@@ -130,7 +129,7 @@ class TestAppLifespan:
         """Test that lifespan initializes the registry."""
         mock_server = MagicMock()
 
-        with patch("reasoning_mcp.server.MethodRegistry") as mock_registry_class:
+        with patch("reasoning_mcp.registry.MethodRegistry") as mock_registry_class:
             mock_registry = MagicMock()
             mock_registry.initialize = AsyncMock()
             mock_registry_class.return_value = mock_registry
@@ -174,7 +173,7 @@ class TestAppLifespan:
             mock_sm.clear = AsyncMock()
             mock_sm_class.return_value = mock_sm
 
-            async with app_lifespan(mock_server) as ctx:
+            async with app_lifespan(mock_server):
                 pass  # Just enter and exit the context
 
             # Verify cleanup was called
@@ -211,7 +210,7 @@ class TestAppLifespan:
             mock_sm_class.return_value = mock_sm
 
             try:
-                async with app_lifespan(mock_server) as ctx:
+                async with app_lifespan(mock_server):
                     raise RuntimeError("Test exception")
             except RuntimeError:
                 pass  # Expected
@@ -229,25 +228,6 @@ class TestAppLifespan:
             assert ctx.initialized is True
 
 
-class TestRegisterMiddleware:
-    """Tests for register_middleware function."""
-
-    def test_register_middleware_exists(self):
-        """Test that register_middleware function exists."""
-        assert callable(register_middleware)
-
-    def test_register_middleware_is_noop(self):
-        """Test that register_middleware is a no-op placeholder."""
-        # Should not raise any exceptions
-        result = register_middleware()
-        assert result is None
-
-    def test_register_middleware_no_parameters(self):
-        """Test that register_middleware takes no parameters."""
-        # This should work without arguments
-        register_middleware()
-
-
 class TestGetSamplingHandler:
     """Tests for get_sampling_handler function."""
 
@@ -255,10 +235,13 @@ class TestGetSamplingHandler:
         """Test that get_sampling_handler function exists."""
         assert callable(get_sampling_handler)
 
-    def test_get_sampling_handler_returns_none(self):
-        """Test that get_sampling_handler returns None."""
+    def test_get_sampling_handler_returns_config(self):
+        """Test that get_sampling_handler returns sampling configuration."""
         result = get_sampling_handler()
-        assert result is None
+        assert result is not None
+        assert isinstance(result, dict)
+        assert "enabled" in result
+        assert "provider" in result
 
     def test_get_sampling_handler_no_parameters(self):
         """Test that get_sampling_handler takes no parameters."""
@@ -282,6 +265,34 @@ class TestGetAuthProvider:
         """Test that get_auth_provider takes no parameters."""
         # This should work without arguments
         get_auth_provider()
+
+
+class TestGetAppContext:
+    """Tests for get_app_context function."""
+
+    def test_get_app_context_raises_when_not_initialized(self):
+        """Test that get_app_context raises error when not in lifespan."""
+        from reasoning_mcp.server import (
+            AppContextNotInitializedError,
+            get_app_context,
+        )
+
+        with pytest.raises(AppContextNotInitializedError):
+            get_app_context()
+
+    def test_app_context_not_initialized_error_message(self):
+        """Test that AppContextNotInitializedError has informative message."""
+        from reasoning_mcp.server import AppContextNotInitializedError
+
+        error = AppContextNotInitializedError()
+        assert "AppContext not initialized" in str(error)
+        assert "lifespan" in str(error)
+
+    def test_app_context_not_initialized_error_is_runtime_error(self):
+        """Test that AppContextNotInitializedError is a RuntimeError."""
+        from reasoning_mcp.server import AppContextNotInitializedError
+
+        assert issubclass(AppContextNotInitializedError, RuntimeError)
 
 
 class TestModuleExports:
@@ -308,13 +319,6 @@ class TestModuleExports:
         assert "app_lifespan" in server.__all__
         assert hasattr(server, "app_lifespan")
 
-    def test_module_exports_register_middleware(self):
-        """Test that module exports register_middleware."""
-        from reasoning_mcp import server
-
-        assert "register_middleware" in server.__all__
-        assert hasattr(server, "register_middleware")
-
     def test_module_exports_get_sampling_handler(self):
         """Test that module exports get_sampling_handler."""
         from reasoning_mcp import server
@@ -329,11 +333,25 @@ class TestModuleExports:
         assert "get_auth_provider" in server.__all__
         assert hasattr(server, "get_auth_provider")
 
-    def test_module_exports_count(self):
-        """Test that module exports exactly 6 items."""
+    def test_module_exports_get_app_context(self):
+        """Test that module exports get_app_context."""
         from reasoning_mcp import server
 
-        assert len(server.__all__) == 6
+        assert "get_app_context" in server.__all__
+        assert hasattr(server, "get_app_context")
+
+    def test_module_exports_app_context_not_initialized_error(self):
+        """Test that module exports AppContextNotInitializedError."""
+        from reasoning_mcp import server
+
+        assert "AppContextNotInitializedError" in server.__all__
+        assert hasattr(server, "AppContextNotInitializedError")
+
+    def test_module_exports_count(self):
+        """Test that module exports exactly 7 items."""
+        from reasoning_mcp import server
+
+        assert len(server.__all__) == 7
 
     def test_all_exports_are_valid(self):
         """Test that all items in __all__ actually exist in module."""

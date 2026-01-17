@@ -7,8 +7,6 @@ and all edge cases for abductive reasoning.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.abductive import ABDUCTIVE_METADATA, Abductive
@@ -236,7 +234,7 @@ class TestAbductiveExecution:
     @pytest.mark.asyncio
     async def test_execute_parses_observations(self, initialized_method, session):
         """Test that execute parses observations from input."""
-        thought = await initialized_method.execute(
+        await initialized_method.execute(
             session=session,
             input_text="Main observation",
         )
@@ -252,7 +250,7 @@ class TestAbductiveExecution:
             "evidence": "Some evidence",
         }
 
-        thought = await initialized_method.execute(
+        await initialized_method.execute(
             session=session,
             input_text="Main observation",
             context=context,
@@ -270,7 +268,7 @@ class TestAbductiveExecution:
             "evidence": ["Evidence 1", "Evidence 2"],
         }
 
-        thought = await initialized_method.execute(
+        await initialized_method.execute(
             session=session,
             input_text="Main observation",
             context=context,
@@ -284,7 +282,7 @@ class TestAbductiveExecution:
         """Test that execute adds thought to session."""
         initial_count = session.thought_count
 
-        thought = await initialized_method.execute(
+        await initialized_method.execute(
             session=session,
             input_text="Test observation",
         )
@@ -368,7 +366,7 @@ class TestHypothesisGeneration:
         method._stage = "observations"
         method._observations = obs_thought.metadata["observations"]
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
             guidance="Generate hypotheses",
@@ -388,7 +386,7 @@ class TestHypothesisGeneration:
         method._stage = "observations"
         method._observations = obs_thought.metadata["observations"]
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
             guidance="Generate hypotheses",
@@ -617,7 +615,7 @@ class TestContinueReasoning:
 
         initial_count = session.thought_count
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
         )
@@ -800,7 +798,7 @@ class TestHypothesisRanking:
         method._stage = "observations"
         method._observations = obs_thought.metadata["observations"]
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
         )
@@ -820,7 +818,7 @@ class TestHypothesisRanking:
         method._stage = "observations"
         method._observations = obs_thought.metadata["observations"]
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
         )
@@ -892,7 +890,7 @@ class TestEdgeCases:
         method._stage = "observations"
         method._observations = obs_thought.metadata["observations"]
 
-        hyp_thought = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session,
             previous_thought=obs_thought,
         )

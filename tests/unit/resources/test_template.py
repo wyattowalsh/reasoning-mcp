@@ -20,7 +20,6 @@ import pytest
 
 from reasoning_mcp.models.core import MethodIdentifier
 
-
 # ============================================================================
 # Mock AppContext (Templates don't need session manager)
 # ============================================================================
@@ -633,7 +632,7 @@ class TestTemplateResourceIntegration:
         assert len(template1["stages"]) == len(template2["stages"])
 
         # Verify stages have same structure (excluding IDs)
-        for stage1, stage2 in zip(template1["stages"], template2["stages"]):
+        for stage1, stage2 in zip(template1["stages"], template2["stages"], strict=True):
             assert stage1["method_id"] == stage2["method_id"]
             assert stage1["name"] == stage2["name"]
             assert stage1["max_thoughts"] == stage2["max_thoughts"]

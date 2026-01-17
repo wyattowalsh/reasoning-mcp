@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.verifiers.base import VerifierBase, VerifierMetadata
 from reasoning_mcp.models.core import VerifierIdentifier
-
+from reasoning_mcp.verifiers.base import VerifierMetadata
 
 R_PRM_METADATA = VerifierMetadata(
     identifier=VerifierIdentifier.R_PRM,
@@ -64,25 +63,27 @@ class RPrm:
             "Consistency check: Cross-referencing conclusions...",
             "Soundness check: Verifying logical validity...",
         ]
-        
+
         verification = "Reasoning-driven verification:\n"
         total_score = 0.0
-        
+
         for i, step in enumerate(reasoning_steps):
             step_score = 0.8 + (i * 0.03)  # Increasing confidence
-            verification += f"  {i+1}. {step} ✓ ({step_score:.2f})\n"
+            verification += f"  {i + 1}. {step} ✓ ({step_score:.2f})\n"
             total_score += step_score
-        
+
         avg_score = total_score / len(reasoning_steps)
         verification += f"\nOverall reasoning score: {avg_score:.2f}"
-        
+
         # Record in history
-        self._reasoning_history.append({
-            "solution_hash": hash(solution) % 10000,
-            "score": avg_score,
-            "steps": len(reasoning_steps),
-        })
-        
+        self._reasoning_history.append(
+            {
+                "solution_hash": hash(solution) % 10000,
+                "score": avg_score,
+                "steps": len(reasoning_steps),
+            }
+        )
+
         return avg_score, verification
 
     async def reason_verify(
@@ -107,7 +108,7 @@ class RPrm:
             "   - Steps justified: Yes\n"
             "   - Evidence cited: Yes\n"
         )
-        
+
         return 0.88, rationale
 
     async def score_steps(
@@ -120,7 +121,7 @@ class RPrm:
         scores = []
         for i, step in enumerate(steps):
             base_score = 0.75
-            
+
             # Reasoning quality indicators
             if any(word in step.lower() for word in ["because", "therefore", "since"]):
                 base_score += 0.1
@@ -128,12 +129,12 @@ class RPrm:
                 base_score += 0.05
             if "=" in step or any(c.isdigit() for c in step):
                 base_score += 0.05
-            
+
             # Position bonus (later steps validated by earlier)
             position_bonus = 0.02 * min(i, 3)
-            
+
             scores.append(min(1.0, base_score + position_bonus))
-        
+
         return scores
 
     async def health_check(self) -> bool:

@@ -2,11 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+from reasoning_mcp.methods.base import MethodMetadata
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
 from reasoning_mcp.models.tools import ComparisonResult, MethodInfo, Recommendation
 from reasoning_mcp.registry import MethodRegistry
@@ -16,6 +14,8 @@ from reasoning_mcp.tools.methods import methods_compare, methods_list, methods_r
 # Create a simple mock method class for testing
 class MockReasoningMethod:
     """Mock reasoning method for testing."""
+
+    streaming_context = None
 
     def __init__(self, identifier: str, name: str, description: str, category: str):
         self._identifier = identifier
@@ -42,14 +42,19 @@ class MockReasoningMethod:
     async def initialize(self) -> None:
         pass
 
-    async def execute(self, session, input_text, *, context=None):
+    async def execute(self, session, input_text, *, context=None, execution_context=None):
         pass
 
-    async def continue_reasoning(self, session, previous_thought, *, guidance=None, context=None):
+    async def continue_reasoning(
+        self, session, previous_thought, *, guidance=None, context=None, execution_context=None
+    ):
         pass
 
     async def health_check(self) -> bool:
         return True
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        pass
 
 
 @pytest.fixture(autouse=True)
@@ -209,7 +214,6 @@ def populate_registry(monkeypatch):
     registry.register(self_consistency_method, self_consistency_metadata)
 
     # Patch the MethodRegistry constructor to return our populated registry
-    original_init = MethodRegistry.__init__
 
     def mock_init(self):
         # Copy all data from our populated registry
@@ -372,9 +376,7 @@ class TestMethodsRecommend:
 
     def test_recommend_returns_recommendations(self):
         """Test that recommend returns a list of Recommendation objects."""
-        recommendations = methods_recommend(
-            problem="How can I solve this complex ethical dilemma?"
-        )
+        recommendations = methods_recommend(problem="How can I solve this complex ethical dilemma?")
 
         # Should return a list
         assert isinstance(recommendations, list)
@@ -393,9 +395,7 @@ class TestMethodsRecommend:
 
     def test_recommend_respects_max_results_default(self):
         """Test that recommend returns at most 3 results by default."""
-        recommendations = methods_recommend(
-            problem="What is the best approach to this problem?"
-        )
+        recommendations = methods_recommend(problem="What is the best approach to this problem?")
 
         # Should return at most 3 results (default)
         assert len(recommendations) <= 3

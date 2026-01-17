@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.elicitation import (
+    ElicitationConfig,
+    elicit_selection,
+)
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -18,8 +24,10 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
+logger = structlog.get_logger(__name__)
 
 # Metadata for Dialectic method
 DIALECTIC_METADATA = MethodMetadata(
@@ -28,15 +36,17 @@ DIALECTIC_METADATA = MethodMetadata(
     description="Thesis-antithesis-synthesis reasoning for balanced analysis. "
     "Explores opposing viewpoints to produce nuanced, higher-order conclusions.",
     category=MethodCategory.HIGH_VALUE,
-    tags=frozenset({
-        "dialectic",
-        "thesis",
-        "antithesis",
-        "synthesis",
-        "balanced",
-        "opposing-views",
-        "philosophical",
-    }),
+    tags=frozenset(
+        {
+            "dialectic",
+            "thesis",
+            "antithesis",
+            "synthesis",
+            "balanced",
+            "opposing-views",
+            "philosophical",
+        }
+    ),
     complexity=6,  # Medium-high complexity
     supports_branching=True,  # Supports multiple antitheses
     supports_revision=True,  # Can revise positions
@@ -62,7 +72,7 @@ DIALECTIC_METADATA = MethodMetadata(
 )
 
 
-class Dialectic:
+class Dialectic(ReasoningMethodBase):
     """Dialectic reasoning method implementation.
 
     This class implements the dialectic reasoning pattern: thesis-antithesis-synthesis.
@@ -110,13 +120,21 @@ class Dialectic:
         >>> print(synthesis.content)  # Synthesis
     """
 
-    def __init__(self) -> None:
-        """Initialize the Dialectic method."""
+    _use_sampling: bool = True
+
+    def __init__(self, enable_elicitation: bool = True) -> None:
+        """Initialize the Dialectic method.
+
+        Args:
+            enable_elicitation: Whether to enable user interaction (default: True)
+        """
         self._initialized = False
         self._step_counter = 0
         self._phase = "thesis"  # Current phase: thesis, antithesis, synthesis
         self._thesis_id: str | None = None  # ID of the thesis thought
         self._antithesis_count = 0  # Track number of antitheses generated
+        self.enable_elicitation = enable_elicitation
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -178,6 +196,7 @@ class Dialectic:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Dialectic method.
 
@@ -188,6 +207,7 @@ class Dialectic:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the thesis
@@ -209,17 +229,28 @@ class Dialectic:
             >>> assert thought.metadata["phase"] == "thesis"
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Dialectic method must be initialized before execution"
-            )
+            raise RuntimeError("Dialectic method must be initialized before execution")
+
+        # Store execution context for elicitation
+        self._execution_context = execution_context
 
         # Reset state for new execution
         self._step_counter = 1
         self._phase = "thesis"
         self._antithesis_count = 0
 
+        # Determine if we should use sampling
+        use_sampling = (
+            execution_context is not None and execution_context.can_sample and self._use_sampling
+        )
+
         # Generate thesis content
-        content = self._generate_thesis(input_text, context)
+        if use_sampling:
+            if execution_context is None:
+                raise RuntimeError("execution_context cannot be None when use_sampling is True")
+            content = await self._sample_thesis(input_text, context)
+        else:
+            content = self._generate_thesis(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -255,6 +286,7 @@ class Dialectic:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -267,6 +299,7 @@ class Dialectic:
             previous_thought: The thought to continue from
             guidance: Optional guidance for the next step
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the dialectical reasoning
@@ -296,9 +329,7 @@ class Dialectic:
             >>> assert synthesis.metadata["phase"] == "synthesis"
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Dialectic method must be initialized before continuation"
-            )
+            raise RuntimeError("Dialectic method must be initialized before continuation")
 
         # Increment step counter
         self._step_counter += 1
@@ -306,13 +337,59 @@ class Dialectic:
         # Determine phase from guidance or current state
         phase = self._determine_phase(guidance, previous_thought)
 
+        # Optional elicitation: ask user which dialectical direction to explore
+        if (
+            self.enable_elicitation
+            and self._execution_context
+            and hasattr(self._execution_context, "ctx")
+            and self._execution_context.ctx
+        ):
+            try:
+                options = [
+                    {"id": "thesis", "label": "Develop thesis argument further"},
+                    {"id": "antithesis", "label": "Develop antithesis argument further"},
+                    {"id": "synthesis", "label": "Attempt synthesis of both positions"},
+                ]
+                config = ElicitationConfig(timeout=15, required=False, default_on_timeout=None)
+                selection = await elicit_selection(
+                    self._execution_context.ctx,
+                    "Which dialectical direction should we explore?",
+                    options,
+                    config=config,
+                )
+                if selection and selection.selected:
+                    # Override phase based on user selection
+                    phase = selection.selected
+                    session.metrics.elicitations_made += 1
+            except (TimeoutError, ConnectionError, OSError, ValueError) as e:
+                logger.warning(
+                    "elicitation_failed",
+                    method="continue_reasoning",
+                    error=str(e),
+                )
+                # Fall back to default behavior
+
+        # Determine if we should use sampling
+        use_sampling = (
+            execution_context is not None and execution_context.can_sample and self._use_sampling
+        )
+
         # Generate content based on phase
         if phase == "antithesis":
-            content = self._generate_antithesis(
-                previous_thought=previous_thought,
-                guidance=guidance,
-                context=context,
-            )
+            if use_sampling:
+                if execution_context is None:
+                    raise RuntimeError("execution_context cannot be None when use_sampling is True")
+                content = await self._sample_antithesis(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
+            else:
+                content = self._generate_antithesis(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
             thought_type = ThoughtType.BRANCH
             self._antithesis_count += 1
             # Antitheses branch from the thesis
@@ -322,11 +399,20 @@ class Dialectic:
             branch_id = f"antithesis_{self._antithesis_count}"
 
         elif phase == "synthesis":
-            content = self._generate_synthesis(
-                previous_thought=previous_thought,
-                guidance=guidance,
-                context=context,
-            )
+            if use_sampling:
+                if execution_context is None:
+                    raise RuntimeError("execution_context cannot be None when use_sampling is True")
+                content = await self._sample_synthesis(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
+            else:
+                content = self._generate_synthesis(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
             thought_type = ThoughtType.SYNTHESIS
             parent_id = previous_thought.id
             depth = previous_thought.depth + 1
@@ -335,11 +421,20 @@ class Dialectic:
             branch_id = None
 
         else:  # Further refinement or continuation
-            content = self._generate_continuation(
-                previous_thought=previous_thought,
-                guidance=guidance,
-                context=context,
-            )
+            if use_sampling:
+                if execution_context is None:
+                    raise RuntimeError("execution_context cannot be None when use_sampling is True")
+                content = await self._sample_continuation(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
+            else:
+                content = self._generate_continuation(
+                    previous_thought=previous_thought,
+                    guidance=guidance,
+                    context=context,
+                )
             thought_type = ThoughtType.CONTINUATION
             parent_id = previous_thought.id
             depth = previous_thought.depth + 1
@@ -419,18 +514,15 @@ class Dialectic:
         # Infer from previous phase
         previous_phase = previous_thought.metadata.get("phase", "")
 
-        if previous_phase == "thesis":
-            # After thesis, default to antithesis
-            return "antithesis"
-        elif previous_phase == "antithesis":
-            # After antithesis, default to synthesis
-            return "synthesis"
-        elif previous_phase == "synthesis":
-            # After synthesis, continue refinement
-            return "continuation"
-        else:
-            # Default to continuation
-            return "continuation"
+        # Phase transition mapping: thesis -> antithesis -> synthesis -> continuation
+        phase_map = {
+            "thesis": "antithesis",  # After thesis, default to antithesis
+            "antithesis": "synthesis",  # After antithesis, default to synthesis
+            "synthesis": "continuation",  # After synthesis, continue refinement
+        }
+
+        # Default to continuation for any other phase
+        return phase_map.get(previous_phase, "continuation")
 
     def _generate_thesis(
         self,
@@ -575,3 +667,214 @@ class Dialectic:
             f"This continuation deepens our understanding by exploring implications, "
             f"examining edge cases, or considering additional perspectives.{guidance_text}"
         )
+
+    async def _sample_thesis(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate thesis content using LLM sampling.
+
+        Args:
+            input_text: The problem or question to reason about
+            context: Optional additional context
+
+        Returns:
+            The sampled content for the thesis
+        """
+        system_prompt = """You are a reasoning assistant using dialectic methodology.
+Generate a THESIS - an initial position on the question.
+
+Structure your thesis with:
+1. Clear statement of the position
+2. Strongest arguments supporting this perspective
+3. Evidence and reasoning
+4. Acknowledgment that this is one side of a multifaceted issue
+
+Be thorough but balanced, presenting the strongest case for this perspective."""
+
+        user_prompt = f"""Question: {input_text}
+
+Generate a thesis that establishes a clear, well-reasoned position on this question.
+Present the strongest arguments for one perspective."""
+
+        step_counter = self._step_counter
+
+        def fallback() -> str:
+            return self._generate_thesis(input_text, context)
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        # Check if we got a fallback response (which already includes the step header)
+        if content.startswith(f"Step {step_counter}:"):
+            return content
+        return f"Step {step_counter}: THESIS - Establishing Initial Position\n\n{content}"
+
+    async def _sample_antithesis(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate antithesis content using LLM sampling.
+
+        Args:
+            previous_thought: The thought to build upon (typically the thesis)
+            guidance: Optional guidance for the antithesis
+            context: Optional additional context
+
+        Returns:
+            The sampled content for the antithesis
+        """
+        antithesis_num = self._antithesis_count + 1
+        guidance_text = f"\n\nAdditional guidance: {guidance}" if guidance else ""
+
+        system_prompt = """You are a reasoning assistant using dialectic methodology.
+Generate an ANTITHESIS - an opposing viewpoint to the thesis.
+
+Structure your antithesis with:
+1. Identification of weaknesses or limitations in the thesis
+2. Alternative evidence or reasoning
+3. A fundamentally different perspective
+4. Critical examination of assumptions
+
+Be rigorous and substantive, not merely contrarian. Illuminate aspects the thesis may
+have overlooked."""
+
+        user_prompt = f"""Previous thesis:
+{previous_thought.content}
+
+Generate an antithesis that critically examines and opposes the thesis.
+Present a well-reasoned alternative perspective.{guidance_text}"""
+
+        step_counter = self._step_counter
+
+        def fallback() -> str:
+            return self._generate_antithesis(previous_thought, guidance, context)
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        # Check if we got a fallback response (which already includes the step header)
+        if content.startswith(f"Step {step_counter}:"):
+            return content
+        return (
+            f"Step {step_counter}: ANTITHESIS {antithesis_num} - "
+            f"Examining the Opposition\n\n{content}"
+        )
+
+    async def _sample_synthesis(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate synthesis content using LLM sampling.
+
+        Args:
+            previous_thought: The thought to build upon (typically an antithesis)
+            guidance: Optional guidance for the synthesis
+            context: Optional additional context
+
+        Returns:
+            The sampled content for the synthesis
+        """
+        guidance_text = f"\n\nAdditional guidance: {guidance}" if guidance else ""
+
+        system_prompt = """You are a reasoning assistant using dialectic methodology.
+Generate a SYNTHESIS - a higher-order integration of thesis and antithesis.
+
+Structure your synthesis with:
+1. Acknowledgment of partial truths in both perspectives
+2. Resolution of contradictions where possible
+3. A more nuanced position that transcends the original binary
+4. Recognition of complexities and contextual dependencies
+
+Create not a mere compromise, but an evolved understanding that incorporates insights
+from both perspectives."""
+
+        user_prompt = f"""Previous dialectical reasoning:
+{previous_thought.content}
+
+Generate a synthesis that integrates the thesis and antithesis into a higher-order understanding.
+Create a nuanced position that transcends the binary opposition.{guidance_text}"""
+
+        step_counter = self._step_counter
+
+        def fallback() -> str:
+            return self._generate_synthesis(previous_thought, guidance, context)
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1200,
+        )
+
+        # Check if we got a fallback response (which already includes the step header)
+        if content.startswith(f"Step {step_counter}:"):
+            return content
+        return f"Step {step_counter}: SYNTHESIS - Integrating Perspectives\n\n{content}"
+
+    async def _sample_continuation(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate continuation content using LLM sampling.
+
+        Args:
+            previous_thought: The thought to build upon
+            guidance: Optional guidance for the continuation
+            context: Optional additional context
+
+        Returns:
+            The sampled content for the continuation
+        """
+        previous_phase = previous_thought.metadata.get("phase", "unknown")
+        guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
+
+        system_prompt = """You are a reasoning assistant continuing dialectic reasoning.
+Build upon the previous dialectical analysis with deeper insights.
+
+Continue by:
+1. Exploring implications of the previous phase
+2. Examining edge cases or nuances
+3. Considering additional perspectives
+4. Deepening the dialectical analysis"""
+
+        user_prompt = f"""Previous {previous_phase} (step {previous_thought.step_number}):
+{previous_thought.content}
+
+Continue the dialectical reasoning, deepening our understanding of the question.{guidance_text}"""
+
+        step_counter = self._step_counter
+
+        def fallback() -> str:
+            return self._generate_continuation(previous_thought, guidance, context)
+
+        content = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )
+
+        # Check if we got a fallback response (which already includes the step header)
+        if content.startswith(f"Step {step_counter}:"):
+            return content
+        return f"Step {step_counter}: Continuing Dialectical Analysis\n\n{content}"

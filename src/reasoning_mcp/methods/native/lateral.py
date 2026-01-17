@@ -8,19 +8,18 @@ blocks, and discovering unconventional approaches.
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import TYPE_CHECKING, Any
-from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
     ThoughtType,
 )
-from reasoning_mcp.models.thought import ThoughtGraph, ThoughtNode
+from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models.session import Session
 
 
@@ -30,15 +29,17 @@ LATERAL_THINKING_METADATA = MethodMetadata(
     name="Lateral Thinking",
     description="Creative divergent thinking that challenges assumptions and finds non-obvious solutions",
     category=MethodCategory.HOLISTIC,
-    tags=frozenset({
-        "creative",
-        "divergent",
-        "innovation",
-        "assumptions",
-        "lateral",
-        "unconventional",
-        "brainstorming",
-    }),
+    tags=frozenset(
+        {
+            "creative",
+            "divergent",
+            "innovation",
+            "assumptions",
+            "lateral",
+            "unconventional",
+            "brainstorming",
+        }
+    ),
     complexity=6,
     supports_branching=True,
     supports_revision=True,
@@ -65,7 +66,7 @@ LATERAL_THINKING_METADATA = MethodMetadata(
 )
 
 
-class LateralThinkingMethod:
+class LateralThinkingMethod(ReasoningMethodBase):
     """Lateral Thinking reasoning method implementation.
 
     This class implements lateral thinking - a creative, divergent approach to
@@ -117,6 +118,8 @@ class LateralThinkingMethod:
         >>> print(challenge.content)  # Assumption challenges
     """
 
+    _use_sampling: bool = True
+
     def __init__(self) -> None:
         """Initialize the Lateral Thinking method."""
         self._initialized = False
@@ -125,6 +128,7 @@ class LateralThinkingMethod:
         self._root_id: str | None = None  # ID of the root thought
         self._techniques_used: set[str] = set()  # Track which techniques we've used
         self._ideas_generated: list[str] = []  # Track generated ideas
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -187,6 +191,7 @@ class LateralThinkingMethod:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Lateral Thinking method.
 
@@ -197,6 +202,7 @@ class LateralThinkingMethod:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context
+            execution_context: Optional execution context for LLM sampling
 
         Returns:
             A ThoughtNode representing the problem framing
@@ -218,9 +224,10 @@ class LateralThinkingMethod:
             >>> assert thought.metadata["phase"] == "framing"
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Lateral Thinking method must be initialized before execution"
-            )
+            raise RuntimeError("Lateral Thinking method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._execution_context = execution_context
 
         # Reset state for new execution
         self._step_counter = 1
@@ -229,7 +236,10 @@ class LateralThinkingMethod:
         self._ideas_generated = []
 
         # Generate problem framing content
-        content = self._generate_framing(input_text, context)
+        if execution_context and execution_context.can_sample:
+            content = await self._sample_framing(input_text, context)
+        else:
+            content = self._generate_framing(input_text, context)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -273,6 +283,7 @@ class LateralThinkingMethod:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -305,23 +316,17 @@ class LateralThinkingMethod:
             >>> assert challenge.metadata["phase"] == "assumption_challenge"
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Lateral Thinking method must be initialized before continuation"
-            )
+            raise RuntimeError("Lateral Thinking method must be initialized before continuation")
 
         # Increment step counter
         self._step_counter += 1
 
         # Determine phase and technique
-        phase, technique = self._determine_phase_and_technique(
-            guidance, previous_thought
-        )
+        phase, technique = self._determine_phase_and_technique(guidance, previous_thought)
 
         # Generate content based on phase and technique
         content, thought_type, parent_id, depth, confidence, branch_id = (
-            self._generate_thought_details(
-                phase, technique, previous_thought, guidance, context
-            )
+            self._generate_thought_details(phase, technique, previous_thought, guidance, context)
         )
 
         thought = ThoughtNode(
@@ -401,7 +406,9 @@ class LateralThinkingMethod:
                 return "divergent_exploration", "provocation"
             if any(word in guidance_lower for word in ["perspective", "viewpoint", "stakeholder"]):
                 return "divergent_exploration", "alternative_perspective"
-            if any(word in guidance_lower for word in ["synthesis", "combine", "integrate", "solution"]):
+            if any(
+                word in guidance_lower for word in ["synthesis", "combine", "integrate", "solution"]
+            ):
                 return "synthesis", "synthesis"
 
         # Infer from previous phase
@@ -460,9 +467,7 @@ class LateralThinkingMethod:
             Tuple of (content, thought_type, parent_id, depth, confidence, branch_id)
         """
         if phase == "assumption_challenge":
-            content = self._generate_assumption_challenge(
-                previous_thought, guidance, context
-            )
+            content = self._generate_assumption_challenge(previous_thought, guidance, context)
             return (
                 content,
                 ThoughtType.EXPLORATION,
@@ -474,25 +479,17 @@ class LateralThinkingMethod:
 
         elif phase == "divergent_exploration":
             if technique == "random_entry":
-                content = self._generate_random_entry(
-                    previous_thought, guidance, context
-                )
+                content = self._generate_random_entry(previous_thought, guidance, context)
             elif technique == "reversal":
-                content = self._generate_reversal(
-                    previous_thought, guidance, context
-                )
+                content = self._generate_reversal(previous_thought, guidance, context)
             elif technique == "provocation":
-                content = self._generate_provocation(
-                    previous_thought, guidance, context
-                )
+                content = self._generate_provocation(previous_thought, guidance, context)
             elif technique == "alternative_perspective":
                 content = self._generate_alternative_perspective(
                     previous_thought, guidance, context
                 )
             else:
-                content = self._generate_exploration(
-                    previous_thought, guidance, context
-                )
+                content = self._generate_exploration(previous_thought, guidance, context)
 
             # Explorations can branch
             branch_id = f"exploration_{technique}_{self._step_counter}"
@@ -528,9 +525,7 @@ class LateralThinkingMethod:
             )
 
         else:  # continuation/refinement
-            content = self._generate_continuation(
-                previous_thought, guidance, context
-            )
+            content = self._generate_continuation(previous_thought, guidance, context)
             return (
                 content,
                 ThoughtType.CONTINUATION,
@@ -861,6 +856,61 @@ class LateralThinkingMethod:
             f"let's further develop our creative reasoning. "
             f"This continuation explores additional facets, refines ideas, "
             f"or applies our lateral insights in new directions.{guidance_text}"
+        )
+
+    async def _sample_framing(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate problem framing content using LLM sampling.
+
+        Args:
+            input_text: The problem or question to reason about
+            context: Optional additional context
+
+        Returns:
+            The content for the problem framing
+
+        Raises:
+            RuntimeError: If execution context is not available
+        """
+        if self._execution_context is None:
+            raise RuntimeError("Execution context required for LLM sampling but was not provided")
+
+        system_prompt = """You are a lateral thinking expert using creative, divergent problem-solving techniques.
+
+Your task is to frame the problem clearly before applying lateral thinking techniques.
+
+Structure your response:
+1. Restate the problem clearly
+2. Identify what we're really trying to achieve
+3. List constraints and limitations
+4. Identify assumptions that might be unconsciously made
+5. Note the conventional approach (that we'll challenge later)
+
+Be clear and analytical. This framing sets the stage for creative exploration."""
+
+        user_prompt = f"""Problem: {input_text}
+
+Please frame this problem for lateral thinking exploration."""
+
+        if context:
+            user_prompt += f"\n\nAdditional context: {context}"
+
+        def fallback() -> str:
+            return self._generate_framing(input_text, context)
+
+        result = await self._sample_with_fallback(
+            user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+        return (
+            f"Step {self._step_counter}: PROBLEM FRAMING - Setting the Creative Stage\n\n{result}"
         )
 
 

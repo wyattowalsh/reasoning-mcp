@@ -8,7 +8,6 @@ from reasoning_mcp.methods.native.analogical import ANALOGICAL_METADATA, Analogi
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
@@ -304,7 +303,7 @@ class TestAnalogicalContinueReasoning:
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.ANALOGICAL,
             content="Previous thought",
-            metadata={"stage": "target_analysis"}
+            metadata={"stage": "target_analysis"},
         )
 
         with pytest.raises(RuntimeError, match="must be initialized"):
@@ -469,9 +468,7 @@ class TestAnalogicalContinueReasoning:
         session = Session().start()
 
         first = await method.execute(session, "Test problem")
-        branch = await method.continue_reasoning(
-            session, first, guidance="another source domain"
-        )
+        branch = await method.continue_reasoning(session, first, guidance="another source domain")
 
         assert branch.type == ThoughtType.BRANCH
 
@@ -677,12 +674,8 @@ class TestAnalogicalEdgeCases:
         first = await method.execute(session, "Test problem")
         second = await method.continue_reasoning(session, first)
 
-        branch1 = await method.continue_reasoning(
-            session, second, guidance="different approach"
-        )
-        branch2 = await method.continue_reasoning(
-            session, second, guidance="alternative method"
-        )
+        branch1 = await method.continue_reasoning(session, second, guidance="different approach")
+        branch2 = await method.continue_reasoning(session, second, guidance="alternative method")
 
         assert branch1.type == ThoughtType.BRANCH
         assert branch2.type == ThoughtType.BRANCH
@@ -735,7 +728,7 @@ class TestAnalogicalEdgeCases:
         session = Session().start()
 
         thought1 = await method.execute(session, "Test problem")
-        thought2 = await method.continue_reasoning(session, thought1)
+        await method.continue_reasoning(session, thought1)
 
         assert session.metrics.total_thoughts == 2
         assert session.metrics.methods_used[MethodIdentifier.ANALOGICAL] == 2

@@ -1,3 +1,7 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="reasoning-mcp logo" width="200" height="200">
+
 # reasoning-mcp
 
 [![Python Version](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
@@ -6,6 +10,8 @@
 [![Coverage](https://img.shields.io/badge/coverage-80%25-green.svg)](https://github.com/wyattowalsh/reasoning-mcp)
 
 **A unified Model Context Protocol (MCP) server that aggregates 30+ advanced reasoning methodologies into a single, powerful interface.**
+
+</div>
 
 ## Overview
 
@@ -510,9 +516,29 @@ pytest tests/unit/test_registry.py
 # Run integration tests
 pytest tests/integration/
 
+# Run E2E tests (MCP server protocol compliance)
+pytest tests/e2e/
+
 # Run with parallel execution
 pytest -n auto
 ```
+
+#### Test Categories
+
+| Category | Location | Purpose |
+|----------|----------|---------|
+| **Unit** | `tests/unit/` | Test individual components in isolation |
+| **Integration** | `tests/integration/` | Test component interactions |
+| **E2E** | `tests/e2e/` | Test complete MCP server protocol compliance |
+
+The E2E test suite (`tests/e2e/test_mcp_server.py`) validates:
+- Server lifecycle (initialization, shutdown, cleanup)
+- Tool registration and execution
+- Resource access via MCP protocol
+- Prompt retrieval
+- Background task management
+- Middleware integration (rate limiting, caching)
+- Error handling and protocol compliance
 
 ### Code Quality
 

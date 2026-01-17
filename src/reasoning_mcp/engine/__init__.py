@@ -9,11 +9,11 @@ from reasoning_mcp.engine.executor import (
     PipelineExecutor,
     StageResult,
 )
+from reasoning_mcp.engine.loop import LoopExecutor
+from reasoning_mcp.engine.parallel import ParallelExecutor
 from reasoning_mcp.engine.registry import get_executor_for_stage
 from reasoning_mcp.engine.sequence import SequenceExecutor
 from reasoning_mcp.engine.switch import SwitchExecutor
-from reasoning_mcp.engine.loop import LoopExecutor
-from reasoning_mcp.engine.parallel import ParallelExecutor
 
 # These will be implemented in future tasks as needed
 # from reasoning_mcp.engine.conditional import ConditionalExecutor

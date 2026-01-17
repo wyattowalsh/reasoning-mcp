@@ -9,12 +9,19 @@ from __future__ import annotations
 
 from collections import deque
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr
+
+# Default maximum sizes for graph collections to prevent memory leaks
+DEFAULT_MAX_NODES = 10000
+DEFAULT_MAX_EDGES = 20000
 
 from reasoning_mcp.models.core import MethodIdentifier, ThoughtType
+
+if TYPE_CHECKING:
+    from reasoning_mcp.utils.graph_utils import ThoughtGraphNetworkX
 
 
 class ThoughtNode(BaseModel):
@@ -251,6 +258,10 @@ class ThoughtGraph(BaseModel):
     Unlike ThoughtNode and ThoughtEdge which are immutable, ThoughtGraph is mutable
     to allow efficient graph construction and modification during reasoning processes.
 
+    The graph has configurable memory bounds (max_nodes, max_edges) to prevent
+    unbounded memory growth. When limits are reached, oldest nodes/edges are
+    evicted using FIFO order.
+
     Examples:
         Create and populate a graph:
         >>> graph = ThoughtGraph()
@@ -280,9 +291,12 @@ class ThoughtGraph(BaseModel):
         >>> print(f"Graph has {graph.node_count} nodes and {graph.edge_count} edges")
         >>> print(f"Maximum depth: {graph.max_depth}")
         >>> print(f"Number of branches: {graph.branch_count}")
+
+        Create a graph with custom limits:
+        >>> small_graph = ThoughtGraph(max_nodes=100, max_edges=200)
     """
 
-    model_config = ConfigDict(frozen=False)
+    model_config = ConfigDict(frozen=False, arbitrary_types_allowed=True)
 
     id: str = Field(
         default_factory=lambda: str(uuid4()),
@@ -308,6 +322,20 @@ class ThoughtGraph(BaseModel):
         default_factory=datetime.now,
         description="Timestamp when this graph was created",
     )
+    max_nodes: int = Field(
+        default=DEFAULT_MAX_NODES,
+        ge=1,
+        description="Maximum number of nodes to retain (oldest evicted first)",
+    )
+    max_edges: int = Field(
+        default=DEFAULT_MAX_EDGES,
+        ge=1,
+        description="Maximum number of edges to retain (oldest evicted first)",
+    )
+
+    # Private attributes for tracking insertion order (for FIFO eviction)
+    _node_order: deque[str] = PrivateAttr(default_factory=deque)
+    _edge_order: deque[str] = PrivateAttr(default_factory=deque)
 
     @property
     def node_count(self) -> int:
@@ -392,13 +420,14 @@ class ThoughtGraph(BaseModel):
         """
         return [node_id for node_id, node in self.nodes.items() if not node.children_ids]
 
-    def add_thought(self, thought: ThoughtNode) -> "ThoughtGraph":
+    def add_thought(self, thought: ThoughtNode) -> ThoughtGraph:
         """Add a ThoughtNode to the graph and update relationships.
 
         This method adds a node to the graph and automatically:
         - Sets root_id if this is the first node without a parent
         - Updates parent node to include this thought as a child
         - Creates a "derives" edge from parent to child
+        - Evicts oldest nodes if max_nodes limit is reached
 
         Args:
             thought: The ThoughtNode to add to the graph
@@ -416,8 +445,23 @@ class ThoughtGraph(BaseModel):
             >>> graph.add_thought(child)
             >>> assert "child" in graph.nodes["root"].children_ids
         """
+        # Evict oldest nodes if at capacity (but never evict the root)
+        while len(self.nodes) >= self.max_nodes and self._node_order:
+            oldest_id = self._node_order[0]
+            # Don't evict the root node
+            if oldest_id == self.root_id:
+                self._node_order.popleft()
+                self._node_order.append(oldest_id)  # Move to end
+                if len(self._node_order) <= 1:
+                    break  # Only root left, can't evict
+                oldest_id = self._node_order[0]
+            if oldest_id in self.nodes:
+                del self.nodes[oldest_id]
+            self._node_order.popleft()
+
         # Add the node to the graph
         self.nodes[thought.id] = thought
+        self._node_order.append(thought.id)
 
         # Set root if this is the first node without a parent
         if self.root_id is None and thought.parent_id is None:
@@ -440,8 +484,10 @@ class ThoughtGraph(BaseModel):
 
         return self
 
-    def add_edge(self, edge: ThoughtEdge) -> "ThoughtGraph":
+    def add_edge(self, edge: ThoughtEdge) -> ThoughtGraph:
         """Add a ThoughtEdge to the graph.
+
+        Evicts oldest edges if max_edges limit is reached using FIFO order.
 
         Args:
             edge: The ThoughtEdge to add to the graph
@@ -455,7 +501,14 @@ class ThoughtGraph(BaseModel):
             >>> graph.add_edge(edge)
             >>> assert "e1" in graph.edges
         """
+        # Evict oldest edges if at capacity
+        while len(self.edges) >= self.max_edges and self._edge_order:
+            oldest_id = self._edge_order.popleft()
+            if oldest_id in self.edges:
+                del self.edges[oldest_id]
+
         self.edges[edge.id] = edge
+        self._edge_order.append(edge.id)
         return self
 
     def get_node(self, node_id: str) -> ThoughtNode | None:
@@ -657,7 +710,11 @@ class ThoughtGraph(BaseModel):
                 break
 
             # Find child with highest confidence
-            children = [self.nodes[child_id] for child_id in current_node.children_ids if child_id in self.nodes]
+            children = [
+                self.nodes[child_id]
+                for child_id in current_node.children_ids
+                if child_id in self.nodes
+            ]
             if not children:
                 break
 
@@ -667,3 +724,219 @@ class ThoughtGraph(BaseModel):
             current_id = best_child.id
 
         return path
+
+    # ==================== NetworkX Integration ====================
+
+    def as_networkx(self) -> ThoughtGraphNetworkX:
+        """Get a NetworkX adapter for advanced graph analysis.
+
+        Creates a ThoughtGraphNetworkX adapter that provides NetworkX-powered
+        analysis capabilities including centrality measures, path finding,
+        cycle detection, and graph metrics.
+
+        Returns:
+            ThoughtGraphNetworkX adapter wrapping this graph
+
+        Raises:
+            ImportError: If NetworkX is not installed
+
+        Examples:
+            >>> adapter = graph.as_networkx()
+            >>> if adapter.is_valid_dag():
+            ...     order = adapter.topological_order()
+            ...     print(f"Reasoning order: {order}")
+            >>> metrics = adapter.get_graph_metrics()
+            >>> print(f"Graph density: {metrics['density']:.3f}")
+        """
+        from reasoning_mcp.utils.graph_utils import ThoughtGraphNetworkX
+
+        return ThoughtGraphNetworkX(self)
+
+    def validate_dag(self) -> bool:
+        """Validate that this graph is a Directed Acyclic Graph (no cycles).
+
+        A valid reasoning graph should be a DAG where thoughts flow from
+        premises to conclusions without circular dependencies.
+
+        Uses NetworkX if available, otherwise falls back to a manual DFS-based
+        cycle detection algorithm.
+
+        Returns:
+            True if the graph is a valid DAG, False if cycles exist
+
+        Examples:
+            >>> if not graph.validate_dag():
+            ...     print("Warning: Graph contains cycles!")
+        """
+        try:
+            adapter = self.as_networkx()
+            return bool(adapter.is_valid_dag())
+        except ImportError:
+            # Fallback: Manual DFS-based cycle detection
+            return self._manual_dag_check()
+
+    def _manual_dag_check(self) -> bool:
+        """Manual DAG validation without NetworkX dependency.
+
+        Uses DFS with three-color marking to detect cycles:
+        - WHITE (0): Unvisited
+        - GRAY (1): Currently in recursion stack
+        - BLACK (2): Fully processed
+
+        Returns:
+            True if no cycles found, False otherwise
+        """
+        WHITE, GRAY, BLACK = 0, 1, 2
+        colors: dict[str, int] = {node_id: WHITE for node_id in self.nodes}
+
+        def dfs(node_id: str) -> bool:
+            """Returns True if cycle detected."""
+            colors[node_id] = GRAY
+            node = self.nodes.get(node_id)
+            if node:
+                for child_id in node.children_ids:
+                    if child_id in colors:
+                        if colors[child_id] == GRAY:
+                            return True  # Back edge = cycle
+                        if colors[child_id] == WHITE and dfs(child_id):
+                            return True
+            colors[node_id] = BLACK
+            return False
+
+        # Check all nodes (handles disconnected components)
+        for node_id in self.nodes:
+            if colors[node_id] == WHITE:
+                if dfs(node_id):
+                    return False  # Cycle found
+
+        return True  # No cycles
+
+    def get_critical_thoughts(self, top_k: int = 5) -> list[str]:
+        """Get the most critical thoughts by betweenness centrality.
+
+        Critical thoughts are those that act as "bridges" in the reasoning
+        graph, connecting different reasoning chains. High centrality indicates
+        thoughts that many reasoning paths pass through.
+
+        Uses NetworkX betweenness centrality if available, otherwise falls back
+        to returning the highest confidence thoughts.
+
+        Args:
+            top_k: Number of top critical thoughts to return
+
+        Returns:
+            List of node IDs representing the most critical thoughts
+
+        Examples:
+            >>> critical = graph.get_critical_thoughts(top_k=3)
+            >>> for node_id in critical:
+            ...     thought = graph.get_node(node_id)
+            ...     print(f"Critical: {thought.content[:50]}...")
+        """
+        try:
+            adapter = self.as_networkx()
+            return [node_id for node_id, _ in adapter.get_critical_nodes(top_k)]
+        except ImportError:
+            # Fallback: Return highest confidence thoughts
+            sorted_nodes = sorted(
+                self.nodes.values(),
+                key=lambda n: (n.confidence, -n.depth),
+                reverse=True,
+            )
+            return [n.id for n in sorted_nodes[:top_k]]
+
+    def find_reasoning_cycles(self) -> list[list[str]]:
+        """Find all cycles in the reasoning graph.
+
+        Cycles in a reasoning graph may indicate circular logic or
+        logical dependencies that need resolution.
+
+        Uses NetworkX if available for efficient cycle detection.
+
+        Returns:
+            List of cycles, where each cycle is a list of node IDs
+
+        Examples:
+            >>> cycles = graph.find_reasoning_cycles()
+            >>> if cycles:
+            ...     print(f"Found {len(cycles)} logical cycles")
+            ...     for cycle in cycles:
+            ...         print(f"  Cycle: {' -> '.join(cycle)}")
+        """
+        try:
+            adapter = self.as_networkx()
+            cycles: list[list[str]] = adapter.find_cycles()
+            return cycles
+        except ImportError:
+            # Fallback: Return empty list (would need manual cycle enumeration)
+            return []
+
+    def get_reasoning_clusters(self) -> list[set[str]]:
+        """Find independent reasoning clusters (weakly connected components).
+
+        Reasoning clusters are groups of thoughts that are connected to each
+        other but disconnected from other clusters. Multiple clusters may
+        indicate parallel reasoning threads.
+
+        Uses NetworkX if available.
+
+        Returns:
+            List of sets, where each set contains node IDs in a cluster
+
+        Examples:
+            >>> clusters = graph.get_reasoning_clusters()
+            >>> print(f"Found {len(clusters)} independent reasoning chains")
+        """
+        try:
+            adapter = self.as_networkx()
+            clusters: list[set[str]] = adapter.get_reasoning_clusters()
+            return clusters
+        except ImportError:
+            # Fallback: Return single cluster with all nodes
+            if self.nodes:
+                return [set(self.nodes.keys())]
+            return []
+
+    def get_graph_metrics(self) -> dict[str, Any]:
+        """Get comprehensive metrics about the reasoning graph.
+
+        Returns a dictionary with various graph statistics useful for
+        understanding the structure and complexity of the reasoning process.
+
+        Uses NetworkX if available for advanced metrics, otherwise returns
+        basic metrics computed manually.
+
+        Returns:
+            Dictionary containing graph metrics:
+            - nodes: Number of nodes
+            - edges: Number of edges
+            - max_depth: Maximum depth in the graph
+            - branch_count: Number of unique branches
+            - is_dag: Whether the graph is acyclic (if NetworkX available)
+            - density: Graph density (if NetworkX available)
+            - connected_components: Number of components (if NetworkX available)
+
+        Examples:
+            >>> metrics = graph.get_graph_metrics()
+            >>> print(f"Nodes: {metrics['nodes']}, Edges: {metrics['edges']}")
+            >>> print(f"Is DAG: {metrics.get('is_dag', 'unknown')}")
+        """
+        # Basic metrics always available
+        metrics: dict[str, Any] = {
+            "nodes": self.node_count,
+            "edges": self.edge_count,
+            "max_depth": self.max_depth,
+            "branch_count": self.branch_count,
+            "leaf_count": len(self.leaf_ids),
+        }
+
+        # Add NetworkX metrics if available
+        try:
+            adapter = self.as_networkx()
+            nx_metrics = adapter.get_graph_metrics()
+            metrics.update(nx_metrics)
+        except ImportError:
+            # Add basic DAG check without NetworkX
+            metrics["is_dag"] = self.validate_dag()
+
+        return metrics

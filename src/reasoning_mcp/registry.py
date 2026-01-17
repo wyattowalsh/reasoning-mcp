@@ -101,7 +101,7 @@ class MethodRegistry:
 
         # Validate protocol compliance at runtime
         if not isinstance(method, ReasoningMethod):
-            raise TypeError(f"Method must satisfy ReasoningMethod protocol")
+            raise TypeError("Method must satisfy ReasoningMethod protocol")
 
         self._methods[key] = method
         self._metadata[key] = metadata

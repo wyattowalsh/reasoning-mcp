@@ -32,7 +32,10 @@ from collections import defaultdict, deque
 from typing import Any
 from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+import structlog
+
+from reasoning_mcp.engine.executor import ExecutionContext
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import (
     MethodCategory,
@@ -40,21 +43,25 @@ from reasoning_mcp.models.core import (
     ThoughtType,
 )
 
+logger = structlog.get_logger(__name__)
+
 # Define metadata for Atom of Thoughts method
 ATOM_OF_THOUGHTS_METADATA = MethodMetadata(
     identifier=MethodIdentifier.ATOM_OF_THOUGHTS,
     name="Atom of Thoughts",
     description="Atomic decomposition with explicit dependency tracking between reasoning units",
     category=MethodCategory.HOLISTIC,
-    tags=frozenset({
-        "atomic",
-        "decomposition",
-        "dependencies",
-        "structured",
-        "dag",
-        "logical",
-        "traceable",
-    }),
+    tags=frozenset(
+        {
+            "atomic",
+            "decomposition",
+            "dependencies",
+            "structured",
+            "dag",
+            "logical",
+            "traceable",
+        }
+    ),
     complexity=7,
     supports_branching=True,
     supports_revision=True,
@@ -79,7 +86,7 @@ ATOM_OF_THOUGHTS_METADATA = MethodMetadata(
 )
 
 
-class AtomOfThoughtsMethod:
+class AtomOfThoughtsMethod(ReasoningMethodBase):
     """Atom of Thoughts reasoning method implementation.
 
     This class implements atomic decomposition of problems into smallest
@@ -104,11 +111,14 @@ class AtomOfThoughtsMethod:
         >>> # Will generate atoms: premises, reasoning steps, conclusion
     """
 
+    _use_sampling: bool = True
+
     def __init__(self) -> None:
         """Initialize the Atom of Thoughts reasoning method."""
         self._is_initialized = False
         self._atoms: dict[str, dict[str, Any]] = {}
         self._dependency_graph: dict[str, list[str]] = defaultdict(list)
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -146,6 +156,7 @@ class AtomOfThoughtsMethod:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute Atom of Thoughts reasoning on the input.
 
@@ -182,6 +193,9 @@ class AtomOfThoughtsMethod:
         if not self._is_initialized:
             await self.initialize()
 
+        # Store execution context for sampling
+        self._execution_context = execution_context
+
         # Extract context parameters
         context = context or {}
         max_atoms = context.get("max_atoms", 10)
@@ -191,7 +205,7 @@ class AtomOfThoughtsMethod:
         self._dependency_graph = defaultdict(list)
 
         # Generate atomic decomposition
-        decomposition = self._generate_atomic_decomposition(
+        decomposition = await self._generate_atomic_decomposition(
             input_text,
             max_atoms=max_atoms,
         )
@@ -243,6 +257,7 @@ class AtomOfThoughtsMethod:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -276,8 +291,7 @@ class AtomOfThoughtsMethod:
             self._atoms = previous_thought.metadata["atoms"]
         if previous_thought.metadata.get("dependency_graph"):
             self._dependency_graph = defaultdict(
-                list,
-                previous_thought.metadata["dependency_graph"]
+                list, previous_thought.metadata["dependency_graph"]
             )
 
         # Build continuation text
@@ -328,7 +342,7 @@ class AtomOfThoughtsMethod:
         """
         return self._is_initialized
 
-    def _generate_atomic_decomposition(
+    async def _generate_atomic_decomposition(
         self,
         input_text: str,
         max_atoms: int = 10,
@@ -359,32 +373,32 @@ class AtomOfThoughtsMethod:
 
         # PREMISES (Atoms with no dependencies) - always needed
         sections.append("\n--- PREMISES (Foundational Atoms) ---")
-        premise_atoms = self._create_premise_atoms(input_text)
+        premise_atoms = await self._create_premise_atoms(input_text)
         sections.extend(premise_atoms)
 
         # Only add additional atoms if under max_atoms limit
         if len(self._atoms) < max_atoms:
             # REASONING ATOMS (Depend on premises and other reasoning)
             sections.append("\n--- REASONING ATOMS ---")
-            reasoning_atoms = self._create_reasoning_atoms(max_atoms)
+            reasoning_atoms = await self._create_reasoning_atoms(max_atoms)
             sections.extend(reasoning_atoms)
 
         if len(self._atoms) < max_atoms:
             # HYPOTHESES (Proposed solutions based on reasoning)
             sections.append("\n--- HYPOTHESIS ATOMS ---")
-            hypothesis_atoms = self._create_hypothesis_atoms(max_atoms)
+            hypothesis_atoms = await self._create_hypothesis_atoms(max_atoms)
             sections.extend(hypothesis_atoms)
 
         if len(self._atoms) < max_atoms:
             # VERIFICATION (Testing the hypotheses)
             sections.append("\n--- VERIFICATION ATOMS ---")
-            verification_atoms = self._create_verification_atoms(max_atoms)
+            verification_atoms = await self._create_verification_atoms(max_atoms)
             sections.extend(verification_atoms)
 
         if len(self._atoms) < max_atoms:
             # CONCLUSION (Final verified conclusion)
             sections.append("\n--- CONCLUSION ATOMS ---")
-            conclusion_atoms = self._create_conclusion_atoms(max_atoms)
+            conclusion_atoms = await self._create_conclusion_atoms(max_atoms)
             sections.extend(conclusion_atoms)
 
         # DEPENDENCY GRAPH SUMMARY
@@ -393,12 +407,64 @@ class AtomOfThoughtsMethod:
 
         return "\n".join(sections)
 
-    def _create_premise_atoms(self, input_text: str) -> list[str]:
+    async def _create_premise_atoms(self, input_text: str) -> list[str]:
         """Create premise atoms (foundational facts with no dependencies)."""
-        atoms = []
+        atoms: list[str] = []
 
+        def _fallback_premises() -> str:
+            """Generate fallback premise content."""
+            return ""  # Empty triggers fallback logic below
+
+        # Use LLM sampling to identify atomic premises
+        prompt = f"""Identify the atomic premises (foundational facts with no \
+dependencies) for this problem:
+
+Problem: {input_text}
+
+Generate 2-3 atomic premises. Each premise should be:
+- A foundational fact or assumption
+- Independent (no dependencies on other atoms)
+- Clearly stated and unambiguous
+
+Format each premise as:
+[P<number>] <premise statement>"""
+
+        system_prompt = (
+            "You are an expert at atomic decomposition of reasoning problems. "
+            "Identify foundational premises that form the basis for logical "
+            "reasoning."
+        )
+
+        result = await self._sample_with_fallback(
+            prompt, _fallback_premises, system_prompt=system_prompt
+        )
+
+        # Parse the LLM response to extract premises
+        if result:
+            lines = result.strip().split("\n")
+            for line in lines:
+                line = line.strip()
+                if line.startswith("[P") and "]" in line:
+                    # Extract atom ID and content
+                    bracket_end = line.index("]")
+                    atom_id = line[1:bracket_end]
+                    content = line[bracket_end + 1 :].strip()
+
+                    self._atoms[atom_id] = {
+                        "id": atom_id,
+                        "type": "PREMISE",
+                        "content": content,
+                        "dependencies": [],
+                    }
+                    atoms.append(f"\n[{atom_id}] (PREMISE) {content}")
+                    atoms.append("    Dependencies: None")
+
+            if atoms:
+                return atoms
+
+        # Fallback heuristic implementation
         # Atom P1: Problem statement
-        atom_id = f"P1"
+        atom_id = "P1"
         self._atoms[atom_id] = {
             "id": atom_id,
             "type": "PREMISE",
@@ -406,7 +472,7 @@ class AtomOfThoughtsMethod:
             "dependencies": [],
         }
         atoms.append(f"\n[{atom_id}] (PREMISE) Given problem: {input_text}")
-        atoms.append(f"    Dependencies: None")
+        atoms.append("    Dependencies: None")
 
         # Atom P2: Domain assumptions
         atom_id = "P2"
@@ -416,18 +482,92 @@ class AtomOfThoughtsMethod:
             "content": "Assume standard logical rules and mathematical axioms apply",
             "dependencies": [],
         }
-        atoms.append(f"\n[{atom_id}] (PREMISE) Assume standard logical rules and mathematical axioms apply")
-        atoms.append(f"    Dependencies: None")
+        atoms.append(
+            f"\n[{atom_id}] (PREMISE) Assume standard logical rules and mathematical axioms apply"
+        )
+        atoms.append("    Dependencies: None")
 
         return atoms
 
-    def _create_reasoning_atoms(self, max_atoms: int = 10) -> list[str]:
+    async def _create_reasoning_atoms(self, max_atoms: int = 10) -> list[str]:
         """Create reasoning atoms (depend on premises and other reasoning)."""
-        atoms = []
+        atoms: list[str] = []
 
         if len(self._atoms) >= max_atoms:
             return atoms
 
+        def _fallback_reasoning() -> str:
+            """Generate fallback reasoning content."""
+            return ""  # Empty triggers fallback logic below
+
+        # Get existing premises for context
+        premises_text = "\n".join(
+            [
+                f"[{atom_id}] {atom_data['content']}"
+                for atom_id, atom_data in self._atoms.items()
+                if atom_data["type"] == "PREMISE"
+            ]
+        )
+
+        # Use LLM sampling to create reasoning atoms
+        prompt = f"""Given these premises:
+{premises_text}
+
+Generate 2-3 reasoning atoms that analyze and process the information. Each reasoning atom should:
+- Build logical inferences from the premises
+- Have explicit dependencies on premise atoms (P1, P2, etc.)
+- Represent a distinct reasoning step
+
+Format each reasoning atom as:
+[R<number>] <reasoning statement>
+Dependencies: <comma-separated list of atom IDs>"""
+
+        system_prompt = (
+            "You are an expert at atomic reasoning. Create logical reasoning "
+            "steps that build upon premises with clear dependencies."
+        )
+
+        result = await self._sample_with_fallback(
+            prompt, _fallback_reasoning, system_prompt=system_prompt
+        )
+
+        # Parse the LLM response
+        if result:
+            lines = result.strip().split("\n")
+            i = 0
+            while i < len(lines) and len(self._atoms) < max_atoms:
+                line = lines[i].strip()
+                if line.startswith("[R") and "]" in line:
+                    bracket_end = line.index("]")
+                    atom_id = line[1:bracket_end]
+                    content = line[bracket_end + 1 :].strip()
+
+                    # Look for dependencies in the next line
+                    dependencies = []
+                    if i + 1 < len(lines) and "Dependencies:" in lines[i + 1]:
+                        dep_line = lines[i + 1].split("Dependencies:")[1].strip()
+                        dependencies = [d.strip() for d in dep_line.split(",") if d.strip()]
+                        i += 1
+
+                    self._atoms[atom_id] = {
+                        "id": atom_id,
+                        "type": "REASONING",
+                        "content": content,
+                        "dependencies": dependencies,
+                    }
+                    for dep in dependencies:
+                        if dep in self._atoms:
+                            self._dependency_graph[dep].append(atom_id)
+
+                    atoms.append(f"\n[{atom_id}] (REASONING) {content}")
+                    dep_str = ", ".join(dependencies) if dependencies else "None"
+                    atoms.append(f"    Dependencies: {dep_str}")
+                i += 1
+
+            if atoms:
+                return atoms
+
+        # Fallback heuristic implementation
         # Atom R1: Initial analysis
         atom_id = "R1"
         dependencies = ["P1", "P2"]
@@ -439,7 +579,9 @@ class AtomOfThoughtsMethod:
         }
         for dep in dependencies:
             self._dependency_graph[dep].append(atom_id)
-        atoms.append(f"\n[{atom_id}] (REASONING) Analyze the problem structure and identify key components")
+        atoms.append(
+            f"\n[{atom_id}] (REASONING) Analyze the problem structure and identify key components"
+        )
         atoms.append(f"    Dependencies: {', '.join(dependencies)}")
 
         if len(self._atoms) >= max_atoms:
@@ -456,18 +598,93 @@ class AtomOfThoughtsMethod:
         }
         for dep in dependencies:
             self._dependency_graph[dep].append(atom_id)
-        atoms.append(f"\n[{atom_id}] (REASONING) Break down into atomic subproblems that can be solved independently")
+        atoms.append(
+            f"\n[{atom_id}] (REASONING) Break down into atomic subproblems that "
+            "can be solved independently"
+        )
         atoms.append(f"    Dependencies: {', '.join(dependencies)}")
 
         return atoms
 
-    def _create_hypothesis_atoms(self, max_atoms: int = 10) -> list[str]:
+    async def _create_hypothesis_atoms(self, max_atoms: int = 10) -> list[str]:
         """Create hypothesis atoms (proposed solutions based on reasoning)."""
-        atoms = []
+        atoms: list[str] = []
 
         if len(self._atoms) >= max_atoms:
             return atoms
 
+        def _fallback_hypothesis() -> str:
+            """Generate fallback hypothesis content."""
+            return ""  # Empty triggers fallback logic below
+
+        # Get existing reasoning atoms for context
+        reasoning_text = "\n".join(
+            [
+                f"[{atom_id}] {atom_data['content']}"
+                for atom_id, atom_data in self._atoms.items()
+                if atom_data["type"] in ["PREMISE", "REASONING"]
+            ]
+        )
+
+        # Use LLM sampling to create hypothesis atoms
+        prompt = f"""Given these premises and reasoning steps:
+{reasoning_text}
+
+Generate 1-2 hypothesis atoms that propose potential solutions. Each hypothesis should:
+- Be based on the reasoning atoms
+- Propose a concrete solution approach
+- Have explicit dependencies on reasoning atoms (R1, R2, etc.)
+
+Format each hypothesis atom as:
+[H<number>] <hypothesis statement>
+Dependencies: <comma-separated list of atom IDs>"""
+
+        system_prompt = (
+            "You are an expert at hypothesis formation. Create testable "
+            "hypotheses based on logical reasoning."
+        )
+
+        result = await self._sample_with_fallback(
+            prompt, _fallback_hypothesis, system_prompt=system_prompt
+        )
+
+        # Parse the LLM response
+        if result:
+            lines = result.strip().split("\n")
+            i = 0
+            while i < len(lines) and len(self._atoms) < max_atoms:
+                line = lines[i].strip()
+                if line.startswith("[H") and "]" in line:
+                    bracket_end = line.index("]")
+                    atom_id = line[1:bracket_end]
+                    content = line[bracket_end + 1 :].strip()
+
+                    # Look for dependencies in the next line
+                    dependencies = []
+                    if i + 1 < len(lines) and "Dependencies:" in lines[i + 1]:
+                        dep_line = lines[i + 1].split("Dependencies:")[1].strip()
+                        dependencies = [d.strip() for d in dep_line.split(",") if d.strip()]
+                        i += 1
+
+                    self._atoms[atom_id] = {
+                        "id": atom_id,
+                        "type": "HYPOTHESIS",
+                        "content": content,
+                        "dependencies": dependencies,
+                    }
+                    for dep in dependencies:
+                        if dep in self._atoms:
+                            self._dependency_graph[dep].append(atom_id)
+
+                    atoms.append(f"\n[{atom_id}] (HYPOTHESIS) {content}")
+                    dep_str = ", ".join(dependencies) if dependencies else "None"
+                    atoms.append(f"    Dependencies: {dep_str}")
+                i += 1
+
+            if atoms:
+                return atoms
+
+        # Fallback heuristic implementation
         # Atom H1: Primary hypothesis
         atom_id = "H1"
         # Use available dependencies based on what atoms were created
@@ -480,18 +697,92 @@ class AtomOfThoughtsMethod:
         }
         for dep in dependencies:
             self._dependency_graph[dep].append(atom_id)
-        atoms.append(f"\n[{atom_id}] (HYPOTHESIS) Propose solution approach based on decomposed subproblems")
+        atoms.append(
+            f"\n[{atom_id}] (HYPOTHESIS) Propose solution approach based on decomposed subproblems"
+        )
         atoms.append(f"    Dependencies: {', '.join(dependencies)}")
 
         return atoms
 
-    def _create_verification_atoms(self, max_atoms: int = 10) -> list[str]:
+    async def _create_verification_atoms(self, max_atoms: int = 10) -> list[str]:
         """Create verification atoms (testing hypotheses)."""
-        atoms = []
+        atoms: list[str] = []
 
         if len(self._atoms) >= max_atoms:
             return atoms
 
+        def _fallback_verification() -> str:
+            """Generate fallback verification content."""
+            return ""  # Empty triggers fallback logic below
+
+        # Get hypothesis atoms for context
+        hypothesis_text = "\n".join(
+            [
+                f"[{atom_id}] {atom_data['content']}"
+                for atom_id, atom_data in self._atoms.items()
+                if atom_data["type"] == "HYPOTHESIS"
+            ]
+        )
+
+        # Use LLM sampling to create verification atoms
+        prompt = f"""Given these hypotheses:
+{hypothesis_text}
+
+Generate 1-2 verification atoms that test the hypotheses. Each verification should:
+- Test the validity of a hypothesis
+- Check against constraints and requirements
+- Have dependencies on hypothesis atoms (H1, H2, etc.) and premises (P1, P2, etc.)
+
+Format each verification atom as:
+[V<number>] <verification statement>
+Dependencies: <comma-separated list of atom IDs>"""
+
+        system_prompt = (
+            "You are an expert at verification and validation. Create "
+            "rigorous tests for hypotheses."
+        )
+
+        result = await self._sample_with_fallback(
+            prompt, _fallback_verification, system_prompt=system_prompt
+        )
+
+        # Parse the LLM response
+        if result:
+            lines = result.strip().split("\n")
+            i = 0
+            while i < len(lines) and len(self._atoms) < max_atoms:
+                line = lines[i].strip()
+                if line.startswith("[V") and "]" in line:
+                    bracket_end = line.index("]")
+                    atom_id = line[1:bracket_end]
+                    content = line[bracket_end + 1 :].strip()
+
+                    # Look for dependencies in the next line
+                    dependencies = []
+                    if i + 1 < len(lines) and "Dependencies:" in lines[i + 1]:
+                        dep_line = lines[i + 1].split("Dependencies:")[1].strip()
+                        dependencies = [d.strip() for d in dep_line.split(",") if d.strip()]
+                        i += 1
+
+                    self._atoms[atom_id] = {
+                        "id": atom_id,
+                        "type": "VERIFICATION",
+                        "content": content,
+                        "dependencies": dependencies,
+                    }
+                    for dep in dependencies:
+                        if dep in self._atoms:
+                            self._dependency_graph[dep].append(atom_id)
+
+                    atoms.append(f"\n[{atom_id}] (VERIFICATION) {content}")
+                    dep_str = ", ".join(dependencies) if dependencies else "None"
+                    atoms.append(f"    Dependencies: {dep_str}")
+                i += 1
+
+            if atoms:
+                return atoms
+
+        # Fallback heuristic implementation
         # Atom V1: Verify hypothesis
         atom_id = "V1"
         # Use available dependencies based on what atoms were created
@@ -504,18 +795,92 @@ class AtomOfThoughtsMethod:
         }
         for dep in dependencies:
             self._dependency_graph[dep].append(atom_id)
-        atoms.append(f"\n[{atom_id}] (VERIFICATION) Test the proposed solution against the original problem constraints")
+        atoms.append(
+            f"\n[{atom_id}] (VERIFICATION) Test the proposed solution against the "
+            "original problem constraints"
+        )
         atoms.append(f"    Dependencies: {', '.join(dependencies)}")
 
         return atoms
 
-    def _create_conclusion_atoms(self, max_atoms: int = 10) -> list[str]:
+    async def _create_conclusion_atoms(self, max_atoms: int = 10) -> list[str]:
         """Create conclusion atoms (final verified conclusions)."""
-        atoms = []
+        atoms: list[str] = []
 
         if len(self._atoms) >= max_atoms:
             return atoms
 
+        def _fallback_conclusion() -> str:
+            """Generate fallback conclusion content."""
+            return ""  # Empty triggers fallback logic below
+
+        # Get all previous atoms for context
+        all_atoms_text = "\n".join(
+            [
+                f"[{atom_id}] ({atom_data['type']}) {atom_data['content']}"
+                for atom_id, atom_data in self._atoms.items()
+            ]
+        )
+
+        # Use LLM sampling to create conclusion atoms
+        prompt = f"""Given this complete atomic reasoning chain:
+{all_atoms_text}
+
+Generate 1 conclusion atom that synthesizes the verified results. The conclusion should:
+- Synthesize the verified hypotheses into a final answer
+- Be based on verification atoms
+- Have dependencies on verification atoms (V1, etc.) and hypothesis atoms (H1, etc.)
+
+Format the conclusion atom as:
+[C<number>] <conclusion statement>
+Dependencies: <comma-separated list of atom IDs>"""
+
+        system_prompt = (
+            "You are an expert at drawing conclusions from logical reasoning "
+            "chains. Synthesize verified results into clear conclusions."
+        )
+
+        result = await self._sample_with_fallback(
+            prompt, _fallback_conclusion, system_prompt=system_prompt
+        )
+
+        # Parse the LLM response
+        if result:
+            lines = result.strip().split("\n")
+            i = 0
+            while i < len(lines) and len(self._atoms) < max_atoms:
+                line = lines[i].strip()
+                if line.startswith("[C") and "]" in line:
+                    bracket_end = line.index("]")
+                    atom_id = line[1:bracket_end]
+                    content = line[bracket_end + 1 :].strip()
+
+                    # Look for dependencies in the next line
+                    dependencies = []
+                    if i + 1 < len(lines) and "Dependencies:" in lines[i + 1]:
+                        dep_line = lines[i + 1].split("Dependencies:")[1].strip()
+                        dependencies = [d.strip() for d in dep_line.split(",") if d.strip()]
+                        i += 1
+
+                    self._atoms[atom_id] = {
+                        "id": atom_id,
+                        "type": "CONCLUSION",
+                        "content": content,
+                        "dependencies": dependencies,
+                    }
+                    for dep in dependencies:
+                        if dep in self._atoms:
+                            self._dependency_graph[dep].append(atom_id)
+
+                    atoms.append(f"\n[{atom_id}] (CONCLUSION) {content}")
+                    dep_str = ", ".join(dependencies) if dependencies else "None"
+                    atoms.append(f"    Dependencies: {dep_str}")
+                i += 1
+
+            if atoms:
+                return atoms
+
+        # Fallback heuristic implementation
         # Atom C1: Final conclusion
         atom_id = "C1"
         # Use available dependencies based on what atoms were created
@@ -528,7 +893,10 @@ class AtomOfThoughtsMethod:
         }
         for dep in dependencies:
             self._dependency_graph[dep].append(atom_id)
-        atoms.append(f"\n[{atom_id}] (CONCLUSION) Conclude with verified solution based on atomic reasoning chain")
+        atoms.append(
+            f"\n[{atom_id}] (CONCLUSION) Conclude with verified solution based on "
+            "atomic reasoning chain"
+        )
         atoms.append(f"    Dependencies: {', '.join(dependencies)}")
 
         return atoms
@@ -584,7 +952,9 @@ class AtomOfThoughtsMethod:
         for dep in dependencies:
             if dep in self._atoms:  # Only add if dependency exists
                 self._dependency_graph[dep].append(atom_id)
-        sections.append(f"\n[{atom_id}] (REASONING) Refine reasoning based on: {continuation_input}")
+        sections.append(
+            f"\n[{atom_id}] (REASONING) Refine reasoning based on: {continuation_input}"
+        )
         sections.append(f"    Dependencies: {', '.join(dependencies)}")
 
         # Updated dependency graph

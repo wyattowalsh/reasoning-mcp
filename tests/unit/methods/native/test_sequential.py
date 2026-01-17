@@ -21,8 +21,6 @@ The test suite aims for 90%+ code coverage with at least 15 test cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.sequential import (
@@ -32,12 +30,10 @@ from reasoning_mcp.methods.native.sequential import (
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -246,9 +242,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that first execution sets step_number to 1."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert result.step_number == 1
         assert initialized_method._step_counter == 1
@@ -258,9 +252,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that initial thought has depth 0."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert result.depth == 0
 
@@ -269,9 +261,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that initial thought has moderate confidence."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert result.confidence == 0.7
         assert 0.0 <= result.confidence <= 1.0
@@ -282,9 +272,7 @@ class TestSequentialThinkingExecution:
     ):
         """Test that input text is included in thought metadata."""
         input_text = "Analyze this problem"
-        result = await initialized_method.execute(
-            session=active_session, input_text=input_text
-        )
+        result = await initialized_method.execute(session=active_session, input_text=input_text)
 
         assert "input" in result.metadata
         assert result.metadata["input"] == input_text
@@ -294,9 +282,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that reasoning type is included in metadata."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert "reasoning_type" in result.metadata
         assert result.metadata["reasoning_type"] == "sequential"
@@ -308,9 +294,7 @@ class TestSequentialThinkingExecution:
         """Test that execute adds thought to session graph."""
         initial_count = active_session.thought_count
 
-        await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert active_session.thought_count == initial_count + 1
 
@@ -319,9 +303,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that execute sets the session's current method."""
-        await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert active_session.current_method == MethodIdentifier.SEQUENTIAL_THINKING
 
@@ -343,9 +325,7 @@ class TestSequentialThinkingExecution:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test execute without context defaults to empty dict."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert "context" in result.metadata
         assert result.metadata["context"] == {}
@@ -364,9 +344,7 @@ class TestSequentialThinkingStepLabeling:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that initial thought is labeled as Step 1."""
-        result = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        result = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert "Step 1" in result.content
 
@@ -375,9 +353,7 @@ class TestSequentialThinkingStepLabeling:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continuation thoughts are labeled with correct step numbers."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -416,18 +392,14 @@ class TestSequentialThinkingContinueReasoning:
     ):
         """Test that continue_reasoning without initialization raises RuntimeError."""
         with pytest.raises(RuntimeError, match="must be initialized"):
-            await method.continue_reasoning(
-                session=active_session, previous_thought=sample_thought
-            )
+            await method.continue_reasoning(session=active_session, previous_thought=sample_thought)
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_creates_continuation(
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continue_reasoning creates a CONTINUATION thought."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         result = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -440,9 +412,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continue_reasoning increments step number."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -456,9 +426,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continuation thought has correct parent_id."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -471,9 +439,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continuation thought has incremented depth."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -486,9 +452,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test continue_reasoning with guidance parameter."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         guidance = "Focus on the mathematical aspects"
         second = await initialized_method.continue_reasoning(
@@ -504,9 +468,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test continue_reasoning without guidance defaults to empty string."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -520,9 +482,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test continue_reasoning with context parameter."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         context = {"additional": "information"}
         second = await initialized_method.continue_reasoning(
@@ -537,9 +497,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that confidence decreases slightly with more steps."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -571,9 +529,7 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that previous step number is included in metadata."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -587,15 +543,11 @@ class TestSequentialThinkingContinueReasoning:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that continue_reasoning adds thought to session."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         initial_count = active_session.thought_count
 
-        await initialized_method.continue_reasoning(
-            session=active_session, previous_thought=first
-        )
+        await initialized_method.continue_reasoning(session=active_session, previous_thought=first)
 
         assert active_session.thought_count == initial_count + 1
 
@@ -652,9 +604,7 @@ class TestSequentialThinkingGraphStructure:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that parent-child relationships are correctly established."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -712,9 +662,7 @@ class TestSequentialThinkingEdgeCases:
     ):
         """Test execution with very long input text."""
         long_text = "x" * 10000
-        result = await initialized_method.execute(
-            session=active_session, input_text=long_text
-        )
+        result = await initialized_method.execute(session=active_session, input_text=long_text)
 
         assert result is not None
         assert result.metadata["input"] == long_text
@@ -725,9 +673,7 @@ class TestSequentialThinkingEdgeCases:
     ):
         """Test execution with special characters in input."""
         special_text = "Test with émojis 🎉, ünîcödé, and symbols: @#$%^&*()"
-        result = await initialized_method.execute(
-            session=active_session, input_text=special_text
-        )
+        result = await initialized_method.execute(session=active_session, input_text=special_text)
 
         assert result is not None
         assert result.metadata["input"] == special_text
@@ -738,9 +684,7 @@ class TestSequentialThinkingEdgeCases:
     ):
         """Test execution with newlines in input."""
         multiline_text = "Line 1\nLine 2\nLine 3"
-        result = await initialized_method.execute(
-            session=active_session, input_text=multiline_text
-        )
+        result = await initialized_method.execute(session=active_session, input_text=multiline_text)
 
         assert result is not None
         assert result.metadata["input"] == multiline_text
@@ -867,9 +811,7 @@ class TestSequentialThinkingMetadataPropagation:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that guidance metadata only appears in continuation thoughts."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first, guidance="Test guidance"
@@ -886,9 +828,7 @@ class TestSequentialThinkingMetadataPropagation:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that previous_step metadata only appears in continuation thoughts."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -954,9 +894,7 @@ class TestSequentialThinkingSessionIntegration:
         """Test that execution updates session metrics."""
         initial_thought_count = active_session.metrics.total_thoughts
 
-        await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        await initialized_method.execute(session=active_session, input_text="Test problem")
 
         assert active_session.metrics.total_thoughts == initial_thought_count + 1
 
@@ -965,9 +903,7 @@ class TestSequentialThinkingSessionIntegration:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that metrics track Sequential Thinking usage."""
-        await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        await initialized_method.execute(session=active_session, input_text="Test problem")
 
         method_key = str(MethodIdentifier.SEQUENTIAL_THINKING)
         assert method_key in active_session.metrics.methods_used
@@ -978,13 +914,9 @@ class TestSequentialThinkingSessionIntegration:
         self, initialized_method: SequentialThinking, active_session: Session
     ):
         """Test that metrics track thought types."""
-        first = await initialized_method.execute(
-            session=active_session, input_text="Test problem"
-        )
+        first = await initialized_method.execute(session=active_session, input_text="Test problem")
 
-        await initialized_method.continue_reasoning(
-            session=active_session, previous_thought=first
-        )
+        await initialized_method.continue_reasoning(session=active_session, previous_thought=first)
 
         initial_key = str(ThoughtType.INITIAL)
         continuation_key = str(ThoughtType.CONTINUATION)

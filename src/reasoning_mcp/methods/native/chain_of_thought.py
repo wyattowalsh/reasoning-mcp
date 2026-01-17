@@ -21,10 +21,17 @@ Example reasoning chain:
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+import structlog
+
+from reasoning_mcp.methods.base import (
+    DEFAULT_MAX_TOKENS,
+    DEFAULT_SAMPLING_TEMPERATURE,
+    MethodMetadata,
+    ReasoningMethodBase,
+)
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import (
     MethodCategory,
@@ -32,20 +39,27 @@ from reasoning_mcp.models.core import (
     ThoughtType,
 )
 
+logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
+
 # Define metadata for the Chain of Thought method
 CHAIN_OF_THOUGHT_METADATA = MethodMetadata(
     identifier=MethodIdentifier.CHAIN_OF_THOUGHT,
     name="Chain of Thought",
     description="Classic step-by-step reasoning with explicit intermediate steps and logical connections",
     category=MethodCategory.CORE,
-    tags=frozenset({
-        "sequential",
-        "explicit",
-        "logical",
-        "step-by-step",
-        "foundational",
-        "teaching",
-    }),
+    tags=frozenset(
+        {
+            "sequential",
+            "explicit",
+            "logical",
+            "step-by-step",
+            "foundational",
+            "teaching",
+        }
+    ),
     complexity=3,
     supports_branching=False,
     supports_revision=True,
@@ -70,7 +84,7 @@ CHAIN_OF_THOUGHT_METADATA = MethodMetadata(
 )
 
 
-class ChainOfThought:
+class ChainOfThought(ReasoningMethodBase):
     """Chain of Thought reasoning method implementation.
 
     This class implements explicit, step-by-step reasoning where each thought
@@ -110,6 +124,8 @@ class ChainOfThought:
         """Initialize the Chain of Thought reasoning method."""
         self._step_count = 0
         self._is_initialized = False
+        self._use_sampling = False
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -146,6 +162,7 @@ class ChainOfThought:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute Chain of Thought reasoning on the input.
 
@@ -163,6 +180,7 @@ class ChainOfThought:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context (max_steps, target_steps, etc.)
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode containing the complete reasoning chain
@@ -179,6 +197,10 @@ class ChainOfThought:
         if not self._is_initialized:
             await self.initialize()
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # Extract context parameters
         context = context or {}
         max_steps = context.get("max_steps", 5)
@@ -187,12 +209,19 @@ class ChainOfThought:
         # Reset step count for this execution
         self._step_count = 0
 
-        # Generate the chain of thought reasoning
-        reasoning_chain = self._generate_reasoning_chain(
-            input_text,
-            max_steps=max_steps,
-            target_steps=target_steps,
-        )
+        # Generate the chain of thought reasoning (use sampling if available)
+        if self._use_sampling:
+            reasoning_chain = await self._sample_reasoning_chain(
+                input_text,
+                max_steps=max_steps,
+                target_steps=target_steps,
+            )
+        else:
+            reasoning_chain = self._generate_reasoning_chain(
+                input_text,
+                max_steps=max_steps,
+                target_steps=target_steps,
+            )
 
         # Determine thought type based on session state
         thought_type = ThoughtType.INITIAL
@@ -224,6 +253,7 @@ class ChainOfThought:
                 "input_text": input_text,
                 "method": "chain_of_thought",
                 "explicit_steps": True,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -239,6 +269,7 @@ class ChainOfThought:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -250,6 +281,7 @@ class ChainOfThought:
             previous_thought: The thought to continue from
             guidance: Optional guidance for the next steps
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the reasoning chain
@@ -266,14 +298,24 @@ class ChainOfThought:
         if not self._is_initialized:
             await self.initialize()
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # Build continuation text
         continuation_input = guidance or "Continue the reasoning process"
 
-        # Generate continued reasoning
-        reasoning_chain = self._generate_reasoning_continuation(
-            previous_thought.content,
-            continuation_input,
-        )
+        # Generate continued reasoning (use sampling if available)
+        if self._use_sampling:
+            reasoning_chain = await self._sample_reasoning_continuation(
+                previous_thought.content,
+                continuation_input,
+            )
+        else:
+            reasoning_chain = self._generate_reasoning_continuation(
+                previous_thought.content,
+                continuation_input,
+            )
 
         # Create continuation thought
         thought = ThoughtNode(
@@ -289,6 +331,7 @@ class ChainOfThought:
                 "continued_from": previous_thought.id,
                 "guidance": guidance,
                 "method": "chain_of_thought",
+                "sampled": self._use_sampling,
             },
         )
 
@@ -358,7 +401,9 @@ class ChainOfThought:
 
         # Conclusion (always include if within max_steps)
         if self._step_count < max_steps:
-            steps.append("\nTherefore, by following this logical progression, I can arrive at a well-reasoned conclusion.")
+            steps.append(
+                "\nTherefore, by following this logical progression, I can arrive at a well-reasoned conclusion."
+            )
             self._step_count += 1
 
         return "\n".join(steps)
@@ -395,3 +440,103 @@ class ChainOfThought:
         self._step_count += 1
 
         return "\n".join(steps)
+
+    async def _sample_reasoning_chain(
+        self,
+        input_text: str,
+        max_steps: int = 5,
+        target_steps: int = 4,
+    ) -> str:
+        """Generate reasoning chain using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        actual reasoning steps rather than placeholder content.
+
+        Args:
+            input_text: The input problem or question
+            max_steps: Maximum number of reasoning steps
+            target_steps: Target number of reasoning steps to aim for
+
+        Returns:
+            A formatted string containing the sampled reasoning chain
+        """
+        self._require_execution_context()
+
+        system_prompt = """You are a reasoning assistant using Chain of Thought methodology.
+Generate explicit, step-by-step reasoning with clear logical connections.
+
+Structure your response with:
+1. Opening: "Let me think about this step by step..."
+2. First step: "First, I need to..." (problem analysis)
+3. Intermediate steps: Use "Next,", "This means that...", "Given that..."
+4. Conclusion: "Therefore," or "In conclusion,"
+
+Be explicit about your reasoning process. Show your work."""
+
+        user_prompt = f"""Problem: {input_text}
+
+Generate {target_steps} reasoning steps (max {max_steps}) following Chain of Thought methodology.
+Show explicit intermediate steps with logical connectives."""
+
+        def fallback() -> str:
+            return self._generate_reasoning_chain(
+                input_text, max_steps=max_steps, target_steps=target_steps
+            )
+
+        content = await self._sample_with_fallback(
+            user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=DEFAULT_SAMPLING_TEMPERATURE,
+            max_tokens=DEFAULT_MAX_TOKENS,
+        )
+        self._step_count = target_steps  # Approximate step count from sampling
+        return content
+
+    async def _sample_reasoning_continuation(
+        self,
+        previous_content: str,
+        continuation_input: str,
+    ) -> str:
+        """Generate reasoning continuation using LLM sampling.
+
+        Uses the execution context's sampling capability to continue
+        reasoning from a previous thought.
+
+        Args:
+            previous_content: Content from the previous thought
+            continuation_input: The continuation guidance or input
+
+        Returns:
+            A formatted string continuing the reasoning chain
+        """
+        self._require_execution_context()
+
+        system_prompt = """You are a reasoning assistant continuing a Chain of Thought analysis.
+Build upon previous reasoning with clear logical connections.
+
+Structure your continuation with:
+1. Reference to previous reasoning
+2. New analysis addressing the guidance
+3. Extended logical steps
+4. Updated conclusion or insight"""
+
+        user_prompt = f"""Previous reasoning:
+{previous_content}
+
+Guidance for continuation: {continuation_input}
+
+Continue the Chain of Thought reasoning, building on the previous analysis."""
+
+        def fallback() -> str:
+            return self._generate_reasoning_continuation(previous_content, continuation_input)
+
+        content = await self._sample_with_fallback(
+            user_prompt,
+            fallback_generator=fallback,
+            system_prompt=system_prompt,
+            temperature=DEFAULT_SAMPLING_TEMPERATURE,
+            max_tokens=1000,
+        )
+        self._step_count += 4  # Approximate step count from sampling
+        return content

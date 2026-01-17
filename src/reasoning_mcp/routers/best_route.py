@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 BEST_ROUTE_METADATA = RouterMetadata(
     identifier=RouterIdentifier.BEST_ROUTE,
@@ -31,8 +30,8 @@ class BestRoute:
 
     def __init__(self) -> None:
         self._initialized = False
-        self._method_costs: dict[str, float] = {}
-        self._method_quality: dict[str, float] = {}
+        self._method_costs: dict[MethodIdentifier, float] = {}
+        self._method_quality: dict[MethodIdentifier, float] = {}
 
     @property
     def identifier(self) -> str:
@@ -65,19 +64,17 @@ class BestRoute:
             MethodIdentifier.MCTS: 0.95,
         }
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route to method with best quality/cost ratio."""
         if not self._initialized:
             raise RuntimeError("BestRoute must be initialized")
 
         budget = context.get("budget", 0.5) if context else 0.5
-        
+
         # Find best method within budget
         best_method = MethodIdentifier.CHAIN_OF_THOUGHT
         best_ratio = 0.0
-        
+
         for method, cost in self._method_costs.items():
             if cost <= budget:
                 quality = self._method_quality.get(method, 0.5)
@@ -85,12 +82,10 @@ class BestRoute:
                 if ratio > best_ratio:
                     best_ratio = ratio
                     best_method = method
-        
+
         return best_method
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[MethodIdentifier, int]:
         """Optimally allocate budget across methods."""
         if not self._initialized:
             raise RuntimeError("BestRoute must be initialized")
@@ -98,20 +93,20 @@ class BestRoute:
         # Greedy allocation by quality/cost ratio
         allocation = {}
         remaining = budget
-        
+
         # Sort methods by quality/cost ratio
         ratios = [
             (method, self._method_quality.get(method, 0.5) / cost)
             for method, cost in self._method_costs.items()
         ]
         ratios.sort(key=lambda x: x[1], reverse=True)
-        
+
         for method, _ in ratios:
             cost = int(self._method_costs[method] * 100)
             if cost <= remaining:
                 allocation[method] = cost
                 remaining -= cost
-        
+
         return allocation
 
     async def health_check(self) -> bool:

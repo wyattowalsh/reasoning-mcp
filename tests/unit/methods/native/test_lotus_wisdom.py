@@ -7,16 +7,13 @@ continuation reasoning, center thought, petal generation, synthesis, and edge ca
 
 from __future__ import annotations
 
-from typing import Any
-from uuid import uuid4
-
 import pytest
 
 from reasoning_mcp.methods.native.lotus_wisdom import (
     LOTUS_WISDOM_METADATA,
     LotusWisdomMethod,
 )
-from reasoning_mcp.models import Session, ThoughtGraph, ThoughtNode
+from reasoning_mcp.models import Session, ThoughtGraph
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
 
 
@@ -155,9 +152,14 @@ class TestLotusWisdomProperties:
 
     def test_description_property(self, lotus_method: LotusWisdomMethod):
         """Test that description returns the correct method description."""
-        assert "5-domain" in lotus_method.description or "holistic" in lotus_method.description.lower()
+        assert (
+            "5-domain" in lotus_method.description or "holistic" in lotus_method.description.lower()
+        )
         # Description focuses on the 5 domains: technical, emotional, ethical, practical, intuitive
-        assert any(domain in lotus_method.description.lower() for domain in ["technical", "emotional", "ethical", "practical", "intuitive"])
+        assert any(
+            domain in lotus_method.description.lower()
+            for domain in ["technical", "emotional", "ethical", "practical", "intuitive"]
+        )
 
     def test_category_property(self, lotus_method: LotusWisdomMethod):
         """Test that category returns the correct method category."""
@@ -263,8 +265,7 @@ class TestLotusWisdomBasicExecution:
 
         # Count domain thoughts
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
         assert len(domain_thoughts) == 5
 
@@ -283,8 +284,7 @@ class TestLotusWisdomBasicExecution:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert len(synthesis) == 1
         assert synthesis[0].type == ThoughtType.SYNTHESIS
@@ -333,8 +333,7 @@ class TestLotusWisdomFiveDomains:
         graph = await lotus_method.execute(session, sample_problem)
 
         technical = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "TECHNICAL"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "TECHNICAL"
         ]
         assert len(technical) == 1
         assert technical[0].type == ThoughtType.BRANCH
@@ -351,8 +350,7 @@ class TestLotusWisdomFiveDomains:
         graph = await lotus_method.execute(session, sample_problem)
 
         emotional = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "EMOTIONAL"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "EMOTIONAL"
         ]
         assert len(emotional) == 1
         assert emotional[0].type == ThoughtType.BRANCH
@@ -369,8 +367,7 @@ class TestLotusWisdomFiveDomains:
         graph = await lotus_method.execute(session, sample_problem)
 
         ethical = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "ETHICAL"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "ETHICAL"
         ]
         assert len(ethical) == 1
         assert ethical[0].type == ThoughtType.BRANCH
@@ -386,8 +383,7 @@ class TestLotusWisdomFiveDomains:
         graph = await lotus_method.execute(session, sample_problem)
 
         practical = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "PRACTICAL"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "PRACTICAL"
         ]
         assert len(practical) == 1
         assert practical[0].type == ThoughtType.BRANCH
@@ -403,8 +399,7 @@ class TestLotusWisdomFiveDomains:
         graph = await lotus_method.execute(session, sample_problem)
 
         intuitive = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "INTUITIVE"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "INTUITIVE"
         ]
         assert len(intuitive) == 1
         assert intuitive[0].type == ThoughtType.BRANCH
@@ -421,8 +416,7 @@ class TestLotusWisdomFiveDomains:
 
         root = graph.get_node(graph.root_id)
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
 
         for domain_thought in domain_thoughts:
@@ -462,8 +456,7 @@ class TestLotusWisdomDomainBalance:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert "balance_check" in synthesis[0].metadata
         balance = synthesis[0].metadata["balance_check"]
@@ -477,7 +470,7 @@ class TestLotusWisdomDomainBalance:
     ):
         """Test that all 5 domains are explored exactly once in basic execution."""
         await lotus_method.initialize()
-        graph = await lotus_method.execute(session, sample_problem)
+        await lotus_method.execute(session, sample_problem)
 
         balance = lotus_method._check_domain_balance()
         assert len(balance) == 5
@@ -526,7 +519,13 @@ class TestLotusWisdomCenterThought:
         root = graph.get_node(graph.root_id)
         pending_domains = root.metadata.get("domains_pending")
         assert len(pending_domains) == 5
-        assert set(pending_domains) == {"TECHNICAL", "EMOTIONAL", "ETHICAL", "PRACTICAL", "INTUITIVE"}
+        assert set(pending_domains) == {
+            "TECHNICAL",
+            "EMOTIONAL",
+            "ETHICAL",
+            "PRACTICAL",
+            "INTUITIVE",
+        }
 
     async def test_center_thought_has_content(
         self,
@@ -557,8 +556,7 @@ class TestLotusWisdomPetalGeneration:
         graph = await lotus_method.execute(session, sample_problem)
 
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
 
         for domain_thought in domain_thoughts:
@@ -577,8 +575,7 @@ class TestLotusWisdomPetalGeneration:
         graph = await lotus_method.execute(session, sample_problem)
 
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
 
         for domain_thought in domain_thoughts:
@@ -596,8 +593,7 @@ class TestLotusWisdomPetalGeneration:
         graph = await lotus_method.execute(session, sample_problem)
 
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
 
         for domain_thought in domain_thoughts:
@@ -615,8 +611,7 @@ class TestLotusWisdomPetalGeneration:
         graph = await lotus_method.execute(session, sample_problem)
 
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
 
         for domain_thought in domain_thoughts:
@@ -638,8 +633,7 @@ class TestLotusWisdomSynthesis:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert "domains_synthesized" in synthesis[0].metadata
         synthesized = synthesis[0].metadata["domains_synthesized"]
@@ -656,8 +650,7 @@ class TestLotusWisdomSynthesis:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert synthesis[0].parent_id == graph.root_id
 
@@ -672,8 +665,7 @@ class TestLotusWisdomSynthesis:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert synthesis[0].depth == 2
 
@@ -688,8 +680,7 @@ class TestLotusWisdomSynthesis:
         graph = await lotus_method.execute(session, sample_problem)
 
         synthesis = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "synthesis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "synthesis"
         ]
         assert synthesis[0].quality_score is not None
         assert synthesis[0].quality_score > 0.0
@@ -742,7 +733,8 @@ class TestLotusWisdomContinueReasoning:
 
         # Should have created a deeper technical thought
         deeper_thoughts = [
-            node for node in updated_graph.nodes.values()
+            node
+            for node in updated_graph.nodes.values()
             if node.metadata.get("phase") == "deepening"
         ]
         assert len(deeper_thoughts) > 0
@@ -763,7 +755,8 @@ class TestLotusWisdomContinueReasoning:
         )
 
         deeper_thoughts = [
-            node for node in updated_graph.nodes.values()
+            node
+            for node in updated_graph.nodes.values()
             if node.metadata.get("phase") == "deepening"
         ]
         assert any(node.metadata.get("domain") == "EMOTIONAL" for node in deeper_thoughts)
@@ -783,7 +776,8 @@ class TestLotusWisdomContinueReasoning:
         )
 
         refined_synthesis = [
-            node for node in updated_graph.nodes.values()
+            node
+            for node in updated_graph.nodes.values()
             if node.metadata.get("phase") == "refined_synthesis"
         ]
         assert len(refined_synthesis) > 0
@@ -818,9 +812,7 @@ class TestLotusWisdomContinueReasoning:
         graph = await lotus_method.execute(session, sample_problem)
         initial_balance = lotus_method._check_domain_balance()
 
-        await lotus_method.continue_reasoning(
-            session, graph, feedback="Deepen ethical analysis"
-        )
+        await lotus_method.continue_reasoning(session, graph, feedback="Deepen ethical analysis")
 
         updated_balance = lotus_method._check_domain_balance()
         # ETHICAL should have increased
@@ -843,8 +835,7 @@ class TestLotusWisdomEdgeCases:
         # Should still create all 5 domains even for technical problem
         assert graph.node_count == 7
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
         assert len(domain_thoughts) == 5
 
@@ -862,8 +853,7 @@ class TestLotusWisdomEdgeCases:
         assert graph.node_count == 7
         # Emotional domain should exist
         emotional = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("domain") == "EMOTIONAL"
+            node for node in graph.nodes.values() if node.metadata.get("domain") == "EMOTIONAL"
         ]
         assert len(emotional) == 1
 
@@ -881,8 +871,7 @@ class TestLotusWisdomEdgeCases:
         assert graph.node_count == 7
         # All domains should be present
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
         domains_found = {node.metadata.get("domain") for node in domain_thoughts}
         assert len(domains_found) == 5
@@ -955,8 +944,7 @@ class TestLotusWisdomEdgeCases:
 
         # Check that all domain petals point to root as parent
         domain_thoughts = [
-            node for node in graph.nodes.values()
-            if node.metadata.get("phase") == "domain_analysis"
+            node for node in graph.nodes.values() if node.metadata.get("phase") == "domain_analysis"
         ]
         for domain_thought in domain_thoughts:
             assert domain_thought.parent_id == root.id

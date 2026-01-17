@@ -353,6 +353,10 @@ class MethodIdentifier(StrEnum):
     SPOC = "spoc"
     """SPOC - Spontaneous Self-Correction without external feedback (2025)."""
 
+    # Ensemble & Meta-Methods
+    ENSEMBLE_REASONING = "ensemble_reasoning"
+    """Combine multiple reasoning methods using voting strategies for robust analysis."""
+
 
 class MethodCategory(StrEnum):
     """Categories for organizing reasoning methods.

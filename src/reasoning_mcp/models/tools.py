@@ -12,10 +12,14 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, SessionStatus, ThoughtType
+from reasoning_mcp.models.core import (
+    MethodCategory,
+    MethodIdentifier,
+    SessionStatus,
+    ThoughtType,
+)
 from reasoning_mcp.models.pipeline import PipelineTrace
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Input Models (Mutable - For Tool Invocations)
@@ -725,6 +729,205 @@ class EvaluationReport(BaseModel):
     )
 
 
+class SessionSummary(BaseModel):
+    """Summary information about a reasoning session.
+
+    SessionSummary provides a lightweight view of a session for listing purposes,
+    containing only essential metadata without the full thought graph.
+
+    Examples:
+        Create session summary:
+        >>> summary = SessionSummary(
+        ...     session_id="session-123",
+        ...     status=SessionStatus.ACTIVE,
+        ...     thought_count=42,
+        ...     branch_count=3,
+        ...     current_method=MethodIdentifier.CHAIN_OF_THOUGHT,
+        ...     created_at=datetime(2025, 1, 1, 10, 0, 0),
+        ...     updated_at=datetime(2025, 1, 1, 10, 15, 30)
+        ... )
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str = Field(
+        description="UUID of the session",
+    )
+    status: SessionStatus = Field(
+        description="Current session status (e.g., created, active, completed)",
+    )
+    thought_count: int = Field(
+        ge=0,
+        description="Total number of thoughts in the session",
+    )
+    branch_count: int = Field(
+        ge=0,
+        description="Number of active branches in the session",
+    )
+    current_method: MethodIdentifier | None = Field(
+        default=None,
+        description="Currently active reasoning method, if any",
+    )
+    created_at: datetime = Field(
+        description="Timestamp when the session was created",
+    )
+    updated_at: datetime | None = Field(
+        default=None,
+        description="Timestamp of the last update to the session",
+    )
+
+
+class SessionListOutput(BaseModel):
+    """Output from session_list tool.
+
+    SessionListOutput provides a paginated list of session summaries with
+    metadata about the total count and pagination parameters.
+
+    Examples:
+        Create session list output:
+        >>> output = SessionListOutput(
+        ...     sessions=[
+        ...         SessionSummary(
+        ...             session_id="session-123",
+        ...             status=SessionStatus.ACTIVE,
+        ...             thought_count=42,
+        ...             branch_count=3,
+        ...             created_at=datetime.now()
+        ...         )
+        ...     ],
+        ...     total=1,
+        ...     limit=100,
+        ...     offset=0
+        ... )
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    sessions: list[SessionSummary] = Field(
+        description="List of session summaries",
+    )
+    total: int = Field(
+        ge=0,
+        description="Total number of sessions matching the query",
+    )
+    limit: int = Field(
+        ge=1,
+        description="Maximum number of sessions returned",
+    )
+    offset: int = Field(
+        ge=0,
+        description="Offset from the start of the result set",
+    )
+
+
+class SessionGetOutput(BaseModel):
+    """Output from session_get tool.
+
+    SessionGetOutput provides detailed information about a specific session,
+    including its full state, configuration, and metrics.
+
+    Examples:
+        Create session get output:
+        >>> output = SessionGetOutput(
+        ...     session_id="session-123",
+        ...     status=SessionStatus.ACTIVE,
+        ...     thought_count=42,
+        ...     branch_count=3,
+        ...     current_method=MethodIdentifier.CHAIN_OF_THOUGHT,
+        ...     created_at=datetime.now(),
+        ...     started_at=datetime.now(),
+        ...     config={"max_depth": 10, "timeout_seconds": 300.0},
+        ...     metrics={"average_confidence": 0.85}
+        ... )
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str = Field(
+        description="UUID of the session",
+    )
+    status: SessionStatus = Field(
+        description="Current session status",
+    )
+    thought_count: int = Field(
+        ge=0,
+        description="Total number of thoughts in the session",
+    )
+    branch_count: int = Field(
+        ge=0,
+        description="Number of active branches in the session",
+    )
+    current_method: MethodIdentifier | None = Field(
+        default=None,
+        description="Currently active reasoning method, if any",
+    )
+    active_branch_id: str | None = Field(
+        default=None,
+        description="ID of the currently active branch",
+    )
+    created_at: datetime = Field(
+        description="Timestamp when the session was created",
+    )
+    started_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the session was started",
+    )
+    completed_at: datetime | None = Field(
+        default=None,
+        description="Timestamp when the session was completed",
+    )
+    error: str | None = Field(
+        default=None,
+        description="Error message if the session failed",
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Session configuration parameters",
+    )
+    metrics: dict[str, Any] = Field(
+        default_factory=dict,
+        description="Session runtime metrics",
+    )
+    recent_thoughts: list[ThoughtOutput] = Field(
+        default_factory=list,
+        description="Most recent thoughts in the session",
+    )
+
+
+class SessionDeleteOutput(BaseModel):
+    """Output from session_delete tool.
+
+    SessionDeleteOutput provides the result of deleting a session.
+
+    Examples:
+        Create successful delete output:
+        >>> output = SessionDeleteOutput(
+        ...     session_id="session-123",
+        ...     deleted=True,
+        ...     message="Session deleted successfully"
+        ... )
+
+        Create failed delete output:
+        >>> output = SessionDeleteOutput(
+        ...     session_id="session-456",
+        ...     deleted=False,
+        ...     message="Session not found"
+        ... )
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    session_id: str = Field(
+        description="UUID of the session that was requested for deletion",
+    )
+    deleted: bool = Field(
+        description="Whether the session was successfully deleted",
+    )
+    message: str = Field(
+        description="Human-readable message about the deletion result",
+    )
+
+
 # ============================================================================
 # Exports
 # ============================================================================
@@ -745,4 +948,9 @@ __all__ = [
     "Recommendation",
     "ComparisonResult",
     "EvaluationReport",
+    # Session management outputs
+    "SessionSummary",
+    "SessionListOutput",
+    "SessionGetOutput",
+    "SessionDeleteOutput",
 ]

@@ -24,6 +24,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import structlog
+
 from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import (
@@ -36,6 +38,8 @@ from reasoning_mcp.models.ensemble import (
     EnsembleMember,
     VotingStrategy,
 )
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
     from reasoning_mcp.engine.executor import ExecutionContext
@@ -136,10 +140,7 @@ class EnsembleReasoning(ReasoningMethodBase):
     @property
     def description(self) -> str:
         """Return a brief description of this method."""
-        return (
-            "Combines multiple reasoning methods using voting strategies "
-            "for robust analysis"
-        )
+        return "Combines multiple reasoning methods using voting strategies for robust analysis"
 
     @property
     def category(self) -> str:
@@ -219,6 +220,11 @@ class EnsembleReasoning(ReasoningMethodBase):
             A ThoughtNode containing the aggregated ensemble result with
             metadata including agreement score, voting details, and member results.
 
+        Raises:
+            RuntimeError: If orchestrator execution fails unexpectedly.
+            TimeoutError: If ensemble execution times out completely.
+            ValueError: If no ensemble members complete successfully.
+
         Examples:
             >>> session = Session().start()
             >>> method = EnsembleReasoning()
@@ -238,7 +244,7 @@ class EnsembleReasoning(ReasoningMethodBase):
         context = context or {}
         config = context.get("ensemble_config", self.config)
 
-        # Execute ensemble orchestration
+        # Execute ensemble orchestration with proper exception handling
         from reasoning_mcp.ensemble.orchestrator import EnsembleOrchestrator
 
         orchestrator = EnsembleOrchestrator(
@@ -246,7 +252,33 @@ class EnsembleReasoning(ReasoningMethodBase):
             execution_context=execution_context,
         )
 
-        result = await orchestrator.execute(input_text)
+        try:
+            result = await orchestrator.execute(input_text)
+        except TimeoutError as e:
+            logger.warning(
+                "ensemble_timeout",
+                method=self.identifier,
+                timeout_ms=config.timeout_ms,
+                error=str(e),
+            )
+            raise
+        except (ConnectionError, OSError) as e:
+            logger.warning(
+                "ensemble_connection_error",
+                method=self.identifier,
+                error=str(e),
+            )
+            raise RuntimeError(
+                f"Ensemble execution failed due to connection error: {e}"
+            ) from e
+        except ValueError as e:
+            # No members completed - re-raise with context
+            logger.warning(
+                "ensemble_no_results",
+                method=self.identifier,
+                error=str(e),
+            )
+            raise
 
         # Determine thought type based on session state
         thought_type = ThoughtType.INITIAL

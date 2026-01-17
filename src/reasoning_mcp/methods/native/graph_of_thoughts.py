@@ -19,12 +19,23 @@ Reference: "Graph of Thoughts: Solving Elaborate Problems with Large Language Mo
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
+import structlog
+
+from reasoning_mcp.elicitation import (
+    ElicitationConfig,
+    elicit_selection,
+)
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
-from reasoning_mcp.methods.base import MethodMetadata
+
+logger = structlog.get_logger(__name__)
+
+if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
 
 
 # Define metadata for Graph of Thoughts method
@@ -33,16 +44,18 @@ GRAPH_OF_THOUGHTS_METADATA = MethodMetadata(
     name="Graph of Thoughts",
     description="DAG-based reasoning with multiple parents, path merging, and complex dependencies",
     category=MethodCategory.CORE,
-    tags=frozenset({
-        "graph",
-        "dag",
-        "branching",
-        "merging",
-        "convergence",
-        "dependencies",
-        "parallel",
-        "core",
-    }),
+    tags=frozenset(
+        {
+            "graph",
+            "dag",
+            "branching",
+            "merging",
+            "convergence",
+            "dependencies",
+            "parallel",
+            "core",
+        }
+    ),
     complexity=7,  # High complexity (6-8) - more complex than tree
     supports_branching=True,  # Fully supports branching
     supports_revision=True,  # Supports revision through merging
@@ -67,7 +80,7 @@ GRAPH_OF_THOUGHTS_METADATA = MethodMetadata(
 )
 
 
-class GraphOfThoughts:
+class GraphOfThoughts(ReasoningMethodBase):
     """Graph of Thoughts reasoning method implementation.
 
     This class implements the ReasoningMethod protocol to provide Graph of Thoughts
@@ -117,6 +130,7 @@ class GraphOfThoughts:
         min_merge_score: float = 0.6,
         enable_convergence: bool = True,
         convergence_threshold: float = 0.7,
+        enable_elicitation: bool = True,
     ) -> None:
         """Initialize the Graph of Thoughts method.
 
@@ -126,6 +140,7 @@ class GraphOfThoughts:
             min_merge_score: Minimum combined score for path merging (0.0-1.0)
             enable_convergence: Whether to enable path convergence
             convergence_threshold: Score threshold for considering paths similar (0.0-1.0)
+            enable_elicitation: Whether to enable user interaction (default: True)
 
         Raises:
             ValueError: If parameters are invalid
@@ -144,6 +159,9 @@ class GraphOfThoughts:
         self.min_merge_score = min_merge_score
         self.enable_convergence = enable_convergence
         self.convergence_threshold = convergence_threshold
+        self.enable_elicitation = enable_elicitation
+        self._use_sampling = False
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -179,6 +197,7 @@ class GraphOfThoughts:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute Graph of Thoughts reasoning on the input.
 
@@ -209,6 +228,10 @@ class GraphOfThoughts:
         if not session.is_active:
             raise ValueError("Session must be active to execute reasoning")
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         # Extract context parameters with defaults
         context = context or {}
         branching = context.get("branching_factor", self.branching_factor)
@@ -217,12 +240,62 @@ class GraphOfThoughts:
         enable_conv = context.get("enable_convergence", self.enable_convergence)
         conv_threshold = context.get("convergence_threshold", self.convergence_threshold)
 
-        # Create root thought
+        # Optional elicitation: ask user for graph exploration strategy
+        exploration_strategy = None
+        if (
+            self.enable_elicitation
+            and self._execution_context
+            and hasattr(self._execution_context, "ctx")
+        ):
+            try:
+                options = [
+                    {
+                        "id": "breadth",
+                        "label": "Breadth-first (wide exploration across many paths)",
+                    },
+                    {"id": "depth", "label": "Depth-first (deep analysis of fewer paths)"},
+                    {"id": "best", "label": "Best-first (follow highest scoring nodes)"},
+                    {"id": "balanced", "label": "Balanced (mix of breadth and depth)"},
+                ]
+                config = ElicitationConfig(timeout=15, required=False, default_on_timeout=None)
+                if self._execution_context.ctx is None:
+                    raise RuntimeError("Execution context has no ctx attribute for elicitation")
+                selection = await elicit_selection(
+                    self._execution_context.ctx,
+                    f"How should the Graph of Thoughts explore '{input_text[:80]}...'?",
+                    options,
+                    config=config,
+                )
+                if selection:
+                    exploration_strategy = selection.selected
+                    session.metrics.elicitations_made += 1
+            except (TimeoutError, ConnectionError, OSError, ValueError) as e:
+                logger.warning(
+                    "elicitation_failed",
+                    method="execute",
+                    error_type=type(e).__name__,
+                    error=str(e),
+                )
+                # Fall back to default behavior
+
+        # Create root thought (use sampling if available)
+        if self._use_sampling:
+            root_content = await self._sample_root_analysis(
+                input_text, branching, depth, enable_conv
+            )
+        else:
+            root_content = (
+                f"Analyzing problem: {input_text}\n\n"
+                f"Initiating Graph of Thoughts reasoning with DAG structure.\n"
+                f"Branching factor: {branching}, Max depth: {depth}\n"
+                f"Convergence enabled: {enable_conv}"
+            )
+
         root = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.GRAPH_OF_THOUGHTS,
-            content=f"Analyzing problem: {input_text}\n\nInitiating Graph of Thoughts reasoning with DAG structure.\nBranching factor: {branching}, Max depth: {depth}\nConvergence enabled: {enable_conv}",
+            content=root_content,
             confidence=0.5,
             quality_score=0.5,
             depth=0,
@@ -230,6 +303,8 @@ class GraphOfThoughts:
                 "branching_factor": branching,
                 "is_root": True,
                 "convergence_enabled": enable_conv,
+                "sampled": self._use_sampling,
+                "exploration_strategy": exploration_strategy,
             },
         )
         session.add_thought(root)
@@ -274,13 +349,29 @@ class GraphOfThoughts:
             else:
                 frontier = next_frontier
 
-            # Limit frontier size to prevent explosion
+            # Limit frontier size to prevent explosion, using exploration strategy if specified
             if len(frontier) > branching * 2:
-                # Keep top scoring nodes
-                frontier.sort(key=lambda n: n.quality_score or 0.0, reverse=True)
-                pruned_count = len(frontier) - (branching * 2)
-                frontier = frontier[:branching * 2]
-                session.metrics.branches_pruned += pruned_count
+                # Apply exploration strategy to pruning
+                if exploration_strategy == "breadth":
+                    # Keep more diverse nodes (less aggressive pruning)
+                    max_frontier = branching * 3
+                elif exploration_strategy == "depth":
+                    # Keep fewer nodes (more aggressive pruning)
+                    max_frontier = branching
+                elif exploration_strategy == "best":
+                    # Sort by quality and keep top nodes
+                    frontier.sort(key=lambda n: n.quality_score or 0.0, reverse=True)
+                    max_frontier = branching * 2
+                else:  # "balanced" or None (default)
+                    max_frontier = branching * 2
+
+                if len(frontier) > max_frontier:
+                    # Sort by quality score if not already sorted
+                    if exploration_strategy != "best":
+                        frontier.sort(key=lambda n: n.quality_score or 0.0, reverse=True)
+                    pruned_count = len(frontier) - max_frontier
+                    frontier = frontier[:max_frontier]
+                    session.metrics.branches_pruned += pruned_count
 
         # Create final synthesis from all leaf nodes
         synthesis = await self._create_synthesis(
@@ -339,8 +430,24 @@ class GraphOfThoughts:
             variation = (hash(branch_id) % 25) / 100.0
             score = max(0.0, min(1.0, base_score + variation))
 
-            # Create branch content
-            content = f"Branch {i+1}: {strategy}\n\nDepth: {depth}, Parent: {parent.id[:8]}...\n\nExploring '{input_text}' through {strategy}\n\nKey insights:\n- Building on parent analysis\n- Depth {depth} investigation\n- Quality score: {score:.2f}"
+            # Create branch content (use sampling if available)
+            if self._use_sampling:
+                content, sampled_score = await self._sample_branch(
+                    input_text, parent.content, strategy, i + 1, branching_factor, depth
+                )
+                # Use sampled score if provided
+                if sampled_score is not None:
+                    score = sampled_score
+            else:
+                content = (
+                    f"Branch {i + 1}: {strategy}\n\n"
+                    f"Depth: {depth}, Parent: {parent.id[:8]}...\n\n"
+                    f"Exploring '{input_text}' through {strategy}\n\n"
+                    f"Key insights:\n"
+                    f"- Building on parent analysis\n"
+                    f"- Depth {depth} investigation\n"
+                    f"- Quality score: {score:.2f}"
+                )
 
             # Create branch thought
             branch = ThoughtNode(
@@ -358,6 +465,7 @@ class GraphOfThoughts:
                     "branch_index": i,
                     "is_merged": False,
                     "parent_count": 1,
+                    "sampled": self._use_sampling,
                 },
             )
 
@@ -414,7 +522,7 @@ class GraphOfThoughts:
             merge_partner: ThoughtNode | None = None
             best_combined_score = 0.0
 
-            for j, node_b in enumerate(candidates[i + 1:], start=i + 1):
+            for _j, node_b in enumerate(candidates[i + 1 :], start=i + 1):
                 if node_b.id in merged_ids:
                     continue
 
@@ -422,10 +530,13 @@ class GraphOfThoughts:
                 similarity = self._calculate_similarity(node_a, node_b)
                 combined_score = (node_a.quality_score or 0.0) + (node_b.quality_score or 0.0)
 
-                if similarity >= threshold and combined_score >= min_score:
-                    if combined_score > best_combined_score:
-                        best_combined_score = combined_score
-                        merge_partner = node_b
+                if (
+                    similarity >= threshold
+                    and combined_score >= min_score
+                    and combined_score > best_combined_score
+                ):
+                    best_combined_score = combined_score
+                    merge_partner = node_b
 
             # If we found a merge partner, create merged node
             if merge_partner:
@@ -474,8 +585,9 @@ class GraphOfThoughts:
 
         base_similarity = 0.5
         for term_a, term_b in compatible_pairs:
-            if (term_a in strategy_a and term_b in strategy_b) or \
-               (term_b in strategy_a and term_a in strategy_b):
+            if (term_a in strategy_a and term_b in strategy_b) or (
+                term_b in strategy_a and term_a in strategy_b
+            ):
                 base_similarity += 0.2
 
         # Adjust by score similarity
@@ -523,7 +635,22 @@ class GraphOfThoughts:
         strategy_a = node_a.metadata.get("strategy", "approach A")
         strategy_b = node_b.metadata.get("strategy", "approach B")
 
-        content = f"MERGED PATH (Multiple Parents)\n\nCombining insights from:\n- {strategy_a}\n- {strategy_b}\n\nParent nodes: {len(all_parents)}\n\nSynthesized analysis:\nThis convergent path integrates multiple reasoning strategies, creating a unified understanding that leverages the strengths of both approaches.\n\nCombined quality: {merged_score:.2f}"
+        # Create merged content (use sampling if available)
+        if self._use_sampling:
+            content = await self._sample_merge(
+                node_a.content, node_b.content, strategy_a, strategy_b, len(all_parents)
+            )
+        else:
+            content = (
+                f"MERGED PATH (Multiple Parents)\n\n"
+                f"Combining insights from:\n- {strategy_a}\n- {strategy_b}\n\n"
+                f"Parent nodes: {len(all_parents)}\n\n"
+                f"Synthesized analysis:\n"
+                f"This convergent path integrates multiple reasoning strategies, "
+                f"creating a unified understanding that leverages the strengths of "
+                f"both approaches.\n\n"
+                f"Combined quality: {merged_score:.2f}"
+            )
 
         # Create merged node - note we only set parent_id to first parent
         # The full parent list is tracked in parent_map
@@ -541,6 +668,7 @@ class GraphOfThoughts:
                 "parent_count": len(all_parents),
                 "merged_from": [node_a.id, node_b.id],
                 "strategies_combined": [strategy_a, strategy_b],
+                "sampled": self._use_sampling,
             },
         )
 
@@ -571,33 +699,39 @@ class GraphOfThoughts:
         # Calculate overall statistics
         total_nodes = len(all_nodes)
         merged_nodes = sum(1 for n in all_nodes.values() if n.metadata.get("is_merged", False))
-        avg_score = sum(n.quality_score or 0.0 for n in leaf_nodes) / len(leaf_nodes) if leaf_nodes else 0.0
+        avg_score = (
+            sum(n.quality_score or 0.0 for n in leaf_nodes) / len(leaf_nodes) if leaf_nodes else 0.0
+        )
 
         # Find nodes with multiple parents (DAG indicators)
         multi_parent_nodes = [
-            node_id for node_id, parents in parent_map.items()
-            if len(parents) > 1
+            node_id for node_id, parents in parent_map.items() if len(parents) > 1
         ]
 
-        # Create synthesis content
-        content = f"Graph of Thoughts - Final Synthesis\n\n"
-        content += f"DAG Structure Summary:\n"
-        content += f"- Total nodes explored: {total_nodes}\n"
-        content += f"- Convergence points (multi-parent nodes): {len(multi_parent_nodes)}\n"
-        content += f"- Merged reasoning paths: {merged_nodes}\n"
-        content += f"- Final leaf nodes: {len(leaf_nodes)}\n"
-        content += f"- Average quality score: {avg_score:.2f}\n\n"
+        # Create synthesis content (use sampling if available)
+        if self._use_sampling:
+            content = await self._sample_synthesis(
+                leaf_nodes, total_nodes, merged_nodes, len(multi_parent_nodes), avg_score
+            )
+        else:
+            content = "Graph of Thoughts - Final Synthesis\n\n"
+            content += "DAG Structure Summary:\n"
+            content += f"- Total nodes explored: {total_nodes}\n"
+            content += f"- Convergence points (multi-parent nodes): {len(multi_parent_nodes)}\n"
+            content += f"- Merged reasoning paths: {merged_nodes}\n"
+            content += f"- Final leaf nodes: {len(leaf_nodes)}\n"
+            content += f"- Average quality score: {avg_score:.2f}\n\n"
 
-        content += f"Key Insights:\n"
-        for i, leaf in enumerate(leaf_nodes[:3], 1):  # Top 3 leaves
-            strategy = leaf.metadata.get("strategy", "analysis")
-            content += f"{i}. {strategy}: {leaf.content[:100]}...\n"
+            content += "Key Insights:\n"
+            for i, leaf in enumerate(leaf_nodes[:3], 1):  # Top 3 leaves
+                strategy = leaf.metadata.get("strategy", "analysis")
+                content += f"{i}. {strategy}: {leaf.content[:100]}...\n"
 
-        content += f"\nConclusion:\n"
-        content += f"The graph-based reasoning explored multiple interconnected paths, "
-        content += f"with {len(multi_parent_nodes)} convergence points where different "
-        content += f"approaches merged into unified insights. This DAG structure enabled "
-        content += f"more flexible reasoning than hierarchical methods."
+            content += "\nConclusion:\n"
+            content += "The graph-based reasoning explored multiple interconnected paths, "
+            content += f"with {len(multi_parent_nodes)} convergence points where different "
+            content += "approaches merged into unified insights. This DAG structure enabled "
+            content += "more flexible reasoning than hierarchical methods."
 
         # Create synthesis thought
         synthesis = ThoughtNode(
@@ -633,6 +767,7 @@ class GraphOfThoughts:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -644,6 +779,7 @@ class GraphOfThoughts:
             previous_thought: Thought to continue from
             guidance: Optional guidance for exploration
             context: Optional context parameters
+            execution_context: Optional execution context for LLM sampling
 
         Returns:
             New ThoughtNode continuing exploration
@@ -651,15 +787,33 @@ class GraphOfThoughts:
         if not session.is_active:
             raise ValueError("Session must be active to continue reasoning")
 
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
+
         context = context or {}
         branching = context.get("branching_factor", 2)
+
+        # Generate continuation content (use sampling if available)
+        if self._use_sampling:
+            continuation_content = await self._sample_continuation(
+                previous_thought.content, guidance, branching
+            )
+        else:
+            guidance_text = guidance or "Exploring additional paths with potential convergence"
+            continuation_content = (
+                f"Continuing graph exploration from previous thought.\n\n"
+                f"Guidance: {guidance_text}\n\n"
+                f"Generating {branching} new exploration paths that may merge with "
+                f"existing graph..."
+            )
 
         # Create continuation thought
         continuation = ThoughtNode(
             id=str(uuid4()),
             type=ThoughtType.CONTINUATION,
             method_id=MethodIdentifier.GRAPH_OF_THOUGHTS,
-            content=f"Continuing graph exploration from previous thought.\n\nGuidance: {guidance or 'Exploring additional paths with potential convergence'}\n\nGenerating {branching} new exploration paths that may merge with existing graph...",
+            content=continuation_content,
             parent_id=previous_thought.id,
             confidence=previous_thought.confidence * 0.95,
             quality_score=previous_thought.quality_score,
@@ -668,11 +822,286 @@ class GraphOfThoughts:
                 "is_continuation": True,
                 "guidance": guidance,
                 "can_merge": True,
+                "sampled": self._use_sampling,
             },
         )
 
         session.add_thought(continuation)
         return continuation
+
+    async def _sample_root_analysis(
+        self,
+        input_text: str,
+        branching: int,
+        depth: int,
+        enable_convergence: bool,
+    ) -> str:
+        """Sample root analysis using LLM.
+
+        Args:
+            input_text: The problem to analyze
+            branching: Branching factor
+            depth: Max depth
+            enable_convergence: Whether convergence is enabled
+
+        Returns:
+            Sampled root analysis content
+        """
+        system_prompt = """You are a reasoning assistant using Graph of Thoughts methodology.
+Analyze the problem and prepare for systematic exploration using a DAG structure.
+
+Your analysis should:
+1. Break down the problem into key components
+2. Identify potential solution approaches
+3. Note where different paths might converge
+4. Establish evaluation criteria for comparing paths"""
+
+        user_prompt = f"""Problem: {input_text}
+
+Graph configuration:
+- Branching factor: {branching}
+- Max depth: {depth}
+- Convergence enabled: {enable_convergence}
+
+Provide a root analysis for the Graph of Thoughts exploration."""
+
+        def fallback() -> str:
+            return (
+                f"Analyzing problem: {input_text}\n\n"
+                f"Initiating Graph of Thoughts reasoning with DAG structure.\n"
+                f"Branching factor: {branching}, Max depth: {depth}\n"
+                f"Convergence enabled: {enable_convergence}"
+            )
+
+        return await self._sample_with_fallback(
+            user_prompt,
+            fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+    async def _sample_branch(
+        self,
+        input_text: str,
+        parent_content: str,
+        strategy: str,
+        branch_num: int,
+        total_branches: int,
+        depth: int,
+    ) -> tuple[str, float | None]:
+        """Sample a branch exploration using LLM.
+
+        Args:
+            input_text: Original problem
+            parent_content: Parent thought content
+            strategy: Exploration strategy for this branch
+            branch_num: Branch number (1-indexed)
+            total_branches: Total number of branches
+            depth: Current depth
+
+        Returns:
+            Tuple of (content, optional quality score)
+        """
+        system_prompt = (
+            f"You are exploring branch {branch_num} of {total_branches} in a "
+            f"Graph of Thoughts.\n"
+            f"Use the '{strategy}' strategy to analyze the problem.\n"
+            f"Build upon the parent analysis while exploring this specific perspective."
+        )
+
+        user_prompt = f"""Problem: {input_text}
+
+Parent analysis:
+{parent_content}
+
+Strategy: {strategy}
+Branch: {branch_num}/{total_branches}
+Depth: {depth}
+
+Provide your analysis for this branch, focusing on the specified strategy."""
+
+        def fallback() -> str:
+            return (
+                f"Branch {branch_num}: {strategy}\n\n"
+                f"Depth: {depth}\n\n"
+                f"Exploring '{input_text}' through {strategy}\n\n"
+                f"Key insights:\n"
+                f"- Building on parent analysis\n"
+                f"- Depth {depth} investigation"
+            )
+
+        content = await self._sample_with_fallback(
+            user_prompt,
+            fallback,
+            system_prompt=system_prompt,
+            temperature=0.8,
+            max_tokens=600,
+        )
+        # Could extract quality score from content if LLM provides it
+        return content, None
+
+    async def _sample_merge(
+        self,
+        content_a: str,
+        content_b: str,
+        strategy_a: str,
+        strategy_b: str,
+        parent_count: int,
+    ) -> str:
+        """Sample a merge of two paths using LLM.
+
+        Args:
+            content_a: Content from first node
+            content_b: Content from second node
+            strategy_a: Strategy from first node
+            strategy_b: Strategy from second node
+            parent_count: Number of parent nodes
+
+        Returns:
+            Merged content
+        """
+        system_prompt = """You are merging two reasoning paths in a Graph of Thoughts.
+Create a synthesis that integrates insights from both approaches."""
+
+        user_prompt = f"""Merge these two reasoning paths:
+
+Path A ({strategy_a}):
+{content_a[:500]}...
+
+Path B ({strategy_b}):
+{content_b[:500]}...
+
+Parent nodes: {parent_count}
+
+Create a unified analysis that synthesizes both perspectives."""
+
+        def fallback() -> str:
+            return (
+                f"MERGED PATH (Multiple Parents)\n\n"
+                f"Combining insights from:\n- {strategy_a}\n- {strategy_b}\n\n"
+                f"Parent nodes: {parent_count}\n\n"
+                f"Synthesized analysis:\n"
+                f"This convergent path integrates multiple reasoning strategies."
+            )
+
+        return await self._sample_with_fallback(
+            user_prompt,
+            fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=700,
+        )
+
+    async def _sample_synthesis(
+        self,
+        leaf_nodes: list[ThoughtNode],
+        total_nodes: int,
+        merged_nodes: int,
+        convergence_points: int,
+        avg_score: float,
+    ) -> str:
+        """Sample final synthesis using LLM.
+
+        Args:
+            leaf_nodes: All leaf nodes in the graph
+            total_nodes: Total number of nodes explored
+            merged_nodes: Number of merged nodes
+            convergence_points: Number of convergence points
+            avg_score: Average quality score
+
+        Returns:
+            Final synthesis content
+        """
+        # Gather key insights from top leaf nodes
+        top_leaves = sorted(leaf_nodes, key=lambda n: n.quality_score or 0.0, reverse=True)[:3]
+        leaf_summaries = []
+        for i, leaf in enumerate(top_leaves, 1):
+            strategy = leaf.metadata.get("strategy", "analysis")
+            preview = leaf.content[:200].replace("\n", " ")
+            leaf_summaries.append(f"{i}. {strategy}: {preview}...")
+
+        system_prompt = """You are creating the final synthesis for a Graph of Thoughts exploration.
+Integrate the key insights from all reasoning paths into a coherent conclusion."""
+
+        user_prompt = f"""Create a final synthesis from this Graph of Thoughts exploration:
+
+Statistics:
+- Total nodes: {total_nodes}
+- Convergence points: {convergence_points}
+- Merged paths: {merged_nodes}
+- Final leaf nodes: {len(leaf_nodes)}
+- Average quality: {avg_score:.2f}
+
+Top insights:
+{chr(10).join(leaf_summaries)}
+
+Provide a comprehensive synthesis highlighting how the graph structure enabled
+multi-path reasoning."""
+
+        def fallback() -> str:
+            return (
+                f"Graph of Thoughts - Final Synthesis\n\n"
+                f"DAG Structure Summary:\n"
+                f"- Total nodes: {total_nodes}\n"
+                f"- Convergence points: {convergence_points}\n"
+                f"- Merged paths: {merged_nodes}\n"
+                f"- Average quality: {avg_score:.2f}\n\n"
+                f"Conclusion:\n"
+                f"The graph-based reasoning explored multiple interconnected paths."
+            )
+
+        return await self._sample_with_fallback(
+            user_prompt,
+            fallback,
+            system_prompt=system_prompt,
+            temperature=0.6,
+            max_tokens=1000,
+        )
+
+    async def _sample_continuation(
+        self,
+        previous_content: str,
+        guidance: str | None,
+        branching: int,
+    ) -> str:
+        """Sample continuation using LLM.
+
+        Args:
+            previous_content: Previous thought content
+            guidance: Optional guidance for continuation
+            branching: Number of branches to explore
+
+        Returns:
+            Continuation content
+        """
+        system_prompt = """You are continuing a Graph of Thoughts exploration.
+Build upon the previous analysis while exploring new paths."""
+
+        user_prompt = f"""Previous analysis:
+{previous_content[:500]}...
+
+Guidance: {guidance or "Explore additional paths with potential convergence"}
+New branches to explore: {branching}
+
+Continue the graph exploration, noting how new paths might merge with existing ones."""
+
+        def fallback() -> str:
+            guidance_text = guidance or "Exploring additional paths with potential convergence"
+            return (
+                f"Continuing graph exploration from previous thought.\n\n"
+                f"Guidance: {guidance_text}\n\n"
+                f"Generating {branching} new exploration paths that may merge with "
+                f"existing graph..."
+            )
+
+        return await self._sample_with_fallback(
+            user_prompt,
+            fallback,
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=600,
+        )
 
     async def health_check(self) -> bool:
         """Check if the method is healthy and ready to execute.

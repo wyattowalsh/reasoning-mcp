@@ -13,13 +13,13 @@ The tests use a MockMethod class that implements the ReasoningMethod protocol
 to avoid dependencies on actual method implementations.
 """
 
-import pytest
 from typing import Any
 
-from reasoning_mcp.registry import MethodRegistry
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
-from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
+import pytest
 
+from reasoning_mcp.methods.base import MethodMetadata
+from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
+from reasoning_mcp.registry import MethodRegistry
 
 # ============================================================================
 # Mock Method Implementation
@@ -32,6 +32,8 @@ class MockMethod:
     This class implements the ReasoningMethod protocol to be used in registry tests
     without requiring actual method implementations.
     """
+
+    streaming_context = None
 
     def __init__(
         self,
@@ -71,14 +73,33 @@ class MockMethod:
             raise RuntimeError("Init failed")
         self._initialized = True
 
-    async def execute(self, session, input_text: str, *, context: dict[str, Any] | None = None):
+    async def execute(
+        self,
+        session,
+        input_text: str,
+        *,
+        context: dict[str, Any] | None = None,
+        execution_context=None,
+    ):
         return None
 
-    async def continue_reasoning(self, session, previous_thought, *, guidance: str | None = None, context: dict[str, Any] | None = None):
+    async def continue_reasoning(
+        self,
+        session,
+        previous_thought,
+        *,
+        guidance: str | None = None,
+        context: dict[str, Any] | None = None,
+        execution_context=None,
+    ):
         return None
 
     async def health_check(self) -> bool:
         return self._healthy
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        """Emit a thought event (no-op for mock)."""
+        pass
 
 
 # ============================================================================
@@ -531,10 +552,7 @@ class TestMethodRegistryList:
         registry.register(method2, metadata2)
 
         # Filter by both category and tags
-        matches = registry.list_methods(
-            category=MethodCategory.CORE,
-            tags={"step-by-step"}
-        )
+        matches = registry.list_methods(category=MethodCategory.CORE, tags={"step-by-step"})
         assert len(matches) == 1
         assert matches[0].identifier == MethodIdentifier.CHAIN_OF_THOUGHT
 

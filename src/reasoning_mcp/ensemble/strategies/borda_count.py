@@ -226,9 +226,7 @@ class BordaCountVoting:
 
         # Step 5: Calculate maximum possible score for normalization
         # Max possible is if all members gave their full confidence-weighted points to one answer
-        max_possible_score = sum(
-            max_points_per_member * result.confidence for result in results
-        )
+        max_possible_score = sum(max_points_per_member * result.confidence for result in results)
 
         # Step 6: Normalize confidence score
         # Edge case: if max_possible is 0 (all zero confidence), return 0

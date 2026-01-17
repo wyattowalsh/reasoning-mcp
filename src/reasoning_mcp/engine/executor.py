@@ -7,6 +7,12 @@ This module defines the core execution framework for pipeline stages, including:
 
 The executor framework enables pluggable execution strategies for different
 pipeline stage types (method, sequence, parallel, conditional, loop, switch).
+
+FastMCP v2.14+ Features:
+- ExecutionContext.ctx for accessing FastMCP Context (sampling, tools)
+- ExecutionContext.can_sample property for checking sampling availability
+- ExecutionContext.sample() method for LLM sampling integration
+- ExecutionContext.sample_with_tools() method for agentic workflows (SEP-1577)
 """
 
 from __future__ import annotations
@@ -14,17 +20,28 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.models.core import PipelineStageType
 from reasoning_mcp.models.pipeline import Pipeline, PipelineTrace, StageMetrics, StageTrace
-from reasoning_mcp.models.session import Session
-from reasoning_mcp.registry import MethodRegistry
+
+if TYPE_CHECKING:
+    from fastmcp.server import Context
+    from pydantic import BaseModel
+
+    from reasoning_mcp.debug.collector import TraceCollector
+    from reasoning_mcp.models.core import PipelineStageType
+    from reasoning_mcp.models.session import Session
+    from reasoning_mcp.registry import MethodRegistry
+    from reasoning_mcp.streaming.context import StreamingContext
 
 
 # ============================================================================
 # Execution Context and Results
 # ============================================================================
+
+
+# Default timeout for pipeline execution (in seconds)
+DEFAULT_EXECUTION_TIMEOUT: float = 300.0
 
 
 @dataclass
@@ -35,6 +52,17 @@ class ExecutionContext:
     executing a pipeline stage, including the session, registry, input data,
     variables, and execution trace.
 
+    FastMCP v2.14+ Features:
+        - ctx: Optional FastMCP Context for sampling and tool access
+        - can_sample: Property indicating if sampling is available
+        - sample(): Method for LLM sampling integration
+        - sample_with_tools(): Method for agentic workflows with tool access (SEP-1577)
+
+    Timeout/Cancellation Features:
+        - timeout: Configurable timeout in seconds for execution
+        - Graceful cancellation propagation to child tasks
+        - Proper error messages when timeouts occur
+
     Attributes:
         session: Current reasoning session containing the thought graph
         registry: Method registry for looking up reasoning methods
@@ -43,6 +71,8 @@ class ExecutionContext:
         trace: Execution trace for recording stage executions
         thought_ids: IDs of thoughts to pass to the next stage
         metadata: Additional execution metadata
+        ctx: Optional FastMCP Context for sampling and tool access (v2.14+)
+        timeout: Execution timeout in seconds (default: 300.0)
 
     Examples:
         Create an execution context:
@@ -65,6 +95,22 @@ class ExecutionContext:
         >>> assert context.session.id == session.id
         >>> assert context.input_data["query"] == "What is reasoning?"
         >>> assert context.variables["max_depth"] == 5
+
+        Create context with sampling (FastMCP v2.14+):
+        >>> context_with_sampling = ExecutionContext(
+        ...     session=session,
+        ...     registry=registry,
+        ...     ctx=mcp_context,  # FastMCP Context
+        ... )
+        >>> if context_with_sampling.can_sample:
+        ...     response = await context_with_sampling.sample("Analyze this problem")
+
+        Create context with custom timeout:
+        >>> context_with_timeout = ExecutionContext(
+        ...     session=session,
+        ...     registry=registry,
+        ...     timeout=60.0,  # 60 second timeout
+        ... )
     """
 
     session: Session
@@ -74,18 +120,172 @@ class ExecutionContext:
     trace: PipelineTrace | None = None
     thought_ids: list[str] = field(default_factory=list)
     metadata: dict[str, Any] = field(default_factory=dict)
+    ctx: Context | None = None  # FastMCP v2.14+ Context for sampling
+    timeout: float = DEFAULT_EXECUTION_TIMEOUT  # Execution timeout in seconds
+
+    @property
+    def can_sample(self) -> bool:
+        """Check if LLM sampling is available.
+
+        Sampling requires a FastMCP Context (v2.14+) to be provided.
+
+        Returns:
+            True if ctx is available and sampling can be performed
+
+        Examples:
+            >>> if context.can_sample:
+            ...     response = await context.sample("Analyze this")
+            ... else:
+            ...     response = "Sampling not available"
+        """
+        return self.ctx is not None
+
+    async def sample(
+        self,
+        prompt: str,
+        *,
+        system_prompt: str | None = None,
+        result_type: type[BaseModel] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        include_thinking: bool = False,
+    ) -> BaseModel | str:
+        """Sample from the LLM using FastMCP Context.
+
+        This method provides a convenient interface to the sampling module,
+        allowing reasoning methods to generate LLM responses.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            system_prompt: Optional system prompt to prepend
+            result_type: Optional Pydantic model for structured output
+            temperature: Sampling temperature (0.0-2.0, default 0.7)
+            max_tokens: Maximum tokens in response (default 4096)
+            include_thinking: Whether to request chain-of-thought (default False)
+
+        Returns:
+            If result_type is provided, returns an instance of that Pydantic model.
+            Otherwise, returns the raw string response.
+
+        Raises:
+            RuntimeError: If ctx is not available (can_sample is False)
+
+        Examples:
+            Simple text sampling:
+            >>> response = await context.sample("What is 2+2?")
+            >>> print(response)
+
+            Structured output:
+            >>> class Analysis(BaseModel):
+            ...     answer: str
+            ...     confidence: float
+            >>> result = await context.sample(
+            ...     "Analyze this problem",
+            ...     result_type=Analysis
+            ... )
+            >>> print(result.answer, result.confidence)
+        """
+        if not self.can_sample:
+            raise RuntimeError(
+                "Sampling requires FastMCP Context (ctx). "
+                "Ensure ctx is passed to ExecutionContext when sampling is needed."
+            )
+
+        from reasoning_mcp.sampling import SamplingConfig, sample_reasoning_step
+
+        config = SamplingConfig(
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+        )
+
+        # ctx is guaranteed non-None here since can_sample was checked by caller
+        assert self.ctx is not None, "Must check can_sample before calling sample()"
+        return await sample_reasoning_step(
+            self.ctx,  # type: ignore[arg-type]
+            prompt,
+            config=config,
+            result_type=result_type,
+            include_thinking=include_thinking,
+        )
+
+    async def sample_with_tools(
+        self,
+        prompt: str,
+        tools: list[Any] | None = None,
+        *,
+        system_prompt: str | None = None,
+        result_type: type[BaseModel] | None = None,
+        temperature: float = 0.7,
+        max_tokens: int = 4096,
+        max_iterations: int = 10,
+    ) -> BaseModel | str:
+        """Sample from the LLM with tool access for agentic workflows.
+
+        FastMCP v2.14+ feature (SEP-1577): Pass tools to ctx.sample() for
+        automatic tool execution loops. The LLM can call tools and iterate
+        until it produces a final response.
+
+        Args:
+            prompt: The prompt to send to the LLM
+            tools: List of tool functions/callables to make available
+            system_prompt: Optional system prompt
+            result_type: Optional Pydantic model for structured output
+            temperature: Sampling temperature (0.0-2.0, default 0.7)
+            max_tokens: Maximum tokens in response (default 4096)
+            max_iterations: Max tool call iterations (default 10)
+
+        Returns:
+            If result_type is provided, returns Pydantic model instance.
+            Otherwise, returns the raw string response.
+
+        Raises:
+            RuntimeError: If ctx is not available (can_sample is False)
+
+        Examples:
+            >>> # Define tool functions
+            >>> def search_knowledge(query: str) -> str:
+            ...     return f"Knowledge about: {query}"
+            >>>
+            >>> response = await context.sample_with_tools(
+            ...     "Find relevant information about AI safety",
+            ...     tools=[search_knowledge],
+            ... )
+        """
+        if not self.can_sample:
+            raise RuntimeError(
+                "Sampling with tools requires FastMCP Context (ctx). "
+                "Ensure ctx is passed to ExecutionContext."
+            )
+
+        from reasoning_mcp.sampling import sample_with_tools as sample_tools_impl
+
+        # ctx is guaranteed non-None here since can_sample was checked by caller
+        assert self.ctx is not None, "Must check can_sample before calling sample_with_tools()"
+        return await sample_tools_impl(
+            self.ctx,  # type: ignore[arg-type]
+            prompt,
+            tools=tools,
+            system_prompt=system_prompt,
+            result_type=result_type,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            max_iterations=max_iterations,
+        )
 
     def with_update(
         self,
         *,
         session: Session | None = None,
-        registry: "MethodRegistry | None" = None,
+        registry: MethodRegistry | None = None,
         input_data: dict[str, Any] | None = None,
         variables: dict[str, Any] | None = None,
         trace: PipelineTrace | None = None,
         thought_ids: list[str] | None = None,
         metadata: dict[str, Any] | None = None,
-    ) -> "ExecutionContext":
+        ctx: Context | None = None,
+        timeout: float | None = None,
+    ) -> ExecutionContext:
         """Create a copy of this context with updated values.
 
         Only specified parameters are updated; others retain their original values.
@@ -98,6 +298,8 @@ class ExecutionContext:
             trace: New trace (optional)
             thought_ids: New thought IDs (optional)
             metadata: New metadata (optional)
+            ctx: New FastMCP Context (optional, v2.14+)
+            timeout: New timeout in seconds (optional)
 
         Returns:
             New ExecutionContext with updated values
@@ -108,6 +310,9 @@ class ExecutionContext:
             ...     thought_ids=["thought-1", "thought-2"]
             ... )
         """
+        # Note: ctx uses special handling - None means "keep original"
+        # To explicitly clear ctx, pass a sentinel or use direct construction
+        new_ctx = ctx if ctx is not None else self.ctx
         return ExecutionContext(
             session=session if session is not None else self.session,
             registry=registry if registry is not None else self.registry,
@@ -116,6 +321,8 @@ class ExecutionContext:
             trace=trace if trace is not None else self.trace,
             thought_ids=thought_ids if thought_ids is not None else self.thought_ids,
             metadata=metadata if metadata is not None else self.metadata,
+            ctx=new_ctx,
+            timeout=timeout if timeout is not None else self.timeout,
         )
 
 
@@ -167,7 +374,7 @@ class StageResult:
     success: bool
     output_thought_ids: list[str] = field(default_factory=list)
     output_data: dict[str, Any] = field(default_factory=dict)
-    trace: "PipelineTrace | None" = None
+    trace: StageTrace | None = None
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
     should_continue: bool = True
@@ -188,6 +395,9 @@ class PipelineExecutor(ABC):
     Executors are registered in the ExecutorRegistry and looked up by stage
     type during pipeline execution.
 
+    Args:
+        streaming_context: Optional streaming context for emitting real-time events
+
     Examples:
         Implement a custom executor:
         >>> class MyMethodExecutor(PipelineExecutor):
@@ -206,6 +416,20 @@ class PipelineExecutor(ABC):
         >>> registry = ExecutorRegistry()
         >>> registry.register(PipelineStageType.METHOD, MyMethodExecutor())
     """
+
+    def __init__(
+        self,
+        streaming_context: StreamingContext | None = None,
+        trace_collector: TraceCollector | None = None,
+    ) -> None:
+        """Initialize the pipeline executor.
+
+        Args:
+            streaming_context: Optional streaming context for emitting real-time events
+            trace_collector: Optional trace collector for debugging and monitoring
+        """
+        self.streaming_context = streaming_context
+        self._trace_collector = trace_collector
 
     @abstractmethod
     async def execute(self, context: ExecutionContext) -> StageResult:
@@ -330,7 +554,7 @@ class PipelineExecutor(ABC):
         output_thought_ids: list[str],
         metrics: StageMetrics | None = None,
         error: str | None = None,
-        children: list["StageTrace"] | None = None,
+        children: list[StageTrace] | None = None,
         **extra_metadata: Any,
     ) -> StageTrace:
         """Create an execution trace for a pipeline stage.
@@ -446,14 +670,10 @@ class ExecutorRegistry:
             ...     print(f"Error: {e}")
         """
         if not isinstance(executor, PipelineExecutor):
-            raise TypeError(
-                f"Executor must inherit from PipelineExecutor, got {type(executor)}"
-            )
+            raise TypeError(f"Executor must inherit from PipelineExecutor, got {type(executor)}")
 
         if stage_type in self._executors and not replace:
-            raise ValueError(
-                f"Executor already registered for stage type '{stage_type}'"
-            )
+            raise ValueError(f"Executor already registered for stage type '{stage_type}'")
 
         self._executors[stage_type] = executor
 

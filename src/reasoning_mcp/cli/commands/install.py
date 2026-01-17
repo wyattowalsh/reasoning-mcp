@@ -7,6 +7,8 @@ listing, and updating plugins for the reasoning-mcp server.
 from __future__ import annotations
 
 import json
+import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -102,6 +104,43 @@ def validate_plugin_structure(plugin_path: Path) -> PluginMetadata:
     )
 
 
+def _validate_dependency_specifier(dep: str) -> str:
+    """Validate and sanitize a dependency specifier.
+
+    Args:
+        dep: Dependency specifier string (e.g., "numpy>=1.24.0").
+
+    Returns:
+        Validated dependency specifier.
+
+    Raises:
+        InstallError: If the dependency specifier contains unsafe characters.
+    """
+    # Pattern for valid PEP 508 dependency specifiers
+    # Allows: package names, version specs, extras, environment markers
+    # Disallows: shell metacharacters, command injection attempts
+    safe_pattern = re.compile(
+        r"^[a-zA-Z0-9]"  # Must start with alphanumeric
+        r"[a-zA-Z0-9._-]*"  # Package name
+        r"(\[[a-zA-Z0-9,._-]+\])?"  # Optional extras
+        r"([<>=!~][=]?[a-zA-Z0-9.*,<>=!~; \[\]]+)?$"  # Optional version spec
+    )
+
+    # Check for dangerous characters that could enable command injection
+    dangerous_chars = set(";|&$`\\'\"\n\r\t")
+    if any(c in dep for c in dangerous_chars):
+        raise InstallError(f"Invalid dependency specifier (contains unsafe characters): {dep}")
+
+    # Basic sanity check on structure
+    if not safe_pattern.match(dep.split(";")[0].strip()):
+        # Allow environment markers after semicolon, but validate main part
+        main_part = dep.split(";")[0].strip()
+        if not re.match(r"^[a-zA-Z0-9][a-zA-Z0-9._-]*", main_part):
+            raise InstallError(f"Invalid dependency specifier format: {dep}")
+
+    return dep
+
+
 def install_dependencies(dependencies: list[str]) -> None:
     """Install plugin dependencies using pip.
 
@@ -114,11 +153,19 @@ def install_dependencies(dependencies: list[str]) -> None:
     if not dependencies:
         return
 
-    console.print(f"Installing {len(dependencies)} dependencies...")
+    # Validate all dependencies before installing
+    validated_deps = []
+    for dep in dependencies:
+        validated_deps.append(_validate_dependency_specifier(dep))
+
+    console.print(f"Installing {len(validated_deps)} dependencies...")
 
     try:
+        # Use shell=False with list of arguments for safety
+        cmd = [sys.executable, "-m", "pip", "install", "--"]
+        cmd.extend(validated_deps)
         subprocess.run(
-            [sys.executable, "-m", "pip", "install"] + dependencies,
+            cmd,
             check=True,
             capture_output=True,
             text=True,
@@ -148,6 +195,65 @@ def copy_plugin_files(source: Path, destination: Path) -> None:
         raise InstallError(f"Failed to copy plugin files: {e}") from e
 
 
+def _validate_git_url(url: str) -> str:
+    """Validate a Git URL to prevent command injection.
+
+    Args:
+        url: Git URL to validate.
+
+    Returns:
+        Validated Git URL.
+
+    Raises:
+        InstallError: If URL contains unsafe characters.
+    """
+    # Check for dangerous characters that could enable command injection
+    dangerous_chars = set(";|&$`\\'\"\n\r\t")
+    if any(c in url for c in dangerous_chars):
+        raise InstallError(f"Invalid Git URL (contains unsafe characters): {url}")
+
+    # Validate URL format
+    valid_patterns = [
+        r"^https?://[a-zA-Z0-9._/-]+\.git$",  # HTTPS URL ending in .git
+        r"^https?://[a-zA-Z0-9._/-]+$",  # HTTPS URL without .git
+        r"^git@[a-zA-Z0-9._-]+:[a-zA-Z0-9._/-]+\.git$",  # SSH URL
+        r"^git@[a-zA-Z0-9._-]+:[a-zA-Z0-9._/-]+$",  # SSH URL without .git
+    ]
+
+    if not any(re.match(pattern, url) for pattern in valid_patterns):
+        raise InstallError(f"Invalid Git URL format: {url}")
+
+    return url
+
+
+def _validate_git_ref(ref: str) -> str:
+    """Validate a Git ref (branch, tag, or commit) to prevent command injection.
+
+    Args:
+        ref: Git ref to validate.
+
+    Returns:
+        Validated Git ref.
+
+    Raises:
+        InstallError: If ref contains unsafe characters.
+    """
+    # Check for dangerous characters
+    dangerous_chars = set(";|&$`\\'\"\n\r\t ")
+    if any(c in ref for c in dangerous_chars):
+        raise InstallError(f"Invalid Git ref (contains unsafe characters): {ref}")
+
+    # Git refs should match: alphanumeric, dots, underscores, hyphens, slashes
+    if not re.match(r"^[a-zA-Z0-9._/-]+$", ref):
+        raise InstallError(f"Invalid Git ref format: {ref}")
+
+    # Prevent directory traversal in ref
+    if ".." in ref:
+        raise InstallError(f"Invalid Git ref (contains '..'): {ref}")
+
+    return ref
+
+
 def _parse_github_source(source: str) -> tuple[str, str | None]:
     """Parse a GitHub source specifier into URL and optional ref.
 
@@ -165,8 +271,6 @@ def _parse_github_source(source: str) -> tuple[str, str | None]:
     Returns:
         Tuple of (git_url, ref) where ref is branch/tag or None.
     """
-    import re
-
     ref: str | None = None
 
     # Handle github: or gh: prefix
@@ -201,19 +305,24 @@ def _clone_git_repo(git_url: str, ref: str | None = None) -> Path:
         Path to the cloned repository.
 
     Raises:
-        InstallError: If cloning fails.
+        InstallError: If cloning fails or inputs are invalid.
     """
     import tempfile
 
+    # Validate inputs to prevent command injection
+    validated_url = _validate_git_url(git_url)
+    validated_ref = _validate_git_ref(ref) if ref else None
+
     temp_dir = Path(tempfile.mkdtemp(prefix="reasoning-mcp-plugin-"))
-    console.print(f"[cyan]Cloning from {git_url}...[/cyan]")
+    console.print(f"[cyan]Cloning from {validated_url}...[/cyan]")
 
     try:
-        # Clone the repository
+        # Clone the repository - use "--" to separate options from arguments
         clone_cmd = ["git", "clone", "--depth", "1"]
-        if ref:
-            clone_cmd.extend(["--branch", ref])
-        clone_cmd.extend([git_url, str(temp_dir)])
+        if validated_ref:
+            clone_cmd.extend(["--branch", validated_ref])
+        clone_cmd.append("--")
+        clone_cmd.extend([validated_url, str(temp_dir)])
 
         result = subprocess.run(
             clone_cmd,
@@ -222,13 +331,13 @@ def _clone_git_repo(git_url: str, ref: str | None = None) -> Path:
         )
 
         # If shallow clone with ref failed, try full clone
-        if result.returncode != 0 and ref:
-            console.print(f"[yellow]Shallow clone failed, trying full clone...[/yellow]")
+        if result.returncode != 0 and validated_ref:
+            console.print("[yellow]Shallow clone failed, trying full clone...[/yellow]")
             temp_dir.rmdir() if temp_dir.exists() else None
             temp_dir = Path(tempfile.mkdtemp(prefix="reasoning-mcp-plugin-"))
 
             subprocess.run(
-                ["git", "clone", git_url, str(temp_dir)],
+                ["git", "clone", "--", validated_url, str(temp_dir)],
                 check=True,
                 capture_output=True,
                 text=True,
@@ -236,16 +345,18 @@ def _clone_git_repo(git_url: str, ref: str | None = None) -> Path:
 
             # Checkout the specific ref
             subprocess.run(
-                ["git", "checkout", ref],
+                ["git", "checkout", "--", validated_ref],
                 cwd=temp_dir,
                 check=True,
                 capture_output=True,
                 text=True,
             )
         elif result.returncode != 0:
-            raise subprocess.CalledProcessError(result.returncode, clone_cmd, result.stdout, result.stderr)
+            raise subprocess.CalledProcessError(
+                result.returncode, clone_cmd, result.stdout, result.stderr
+            )
 
-        console.print(f"[green]✓ Cloned successfully[/green]")
+        console.print("[green]✓ Cloned successfully[/green]")
         return temp_dir
 
     except subprocess.CalledProcessError as e:
@@ -288,9 +399,8 @@ def resolve_source(source: str) -> Path:
         return local_path.resolve()
 
     # Check for GitHub shorthand or Git URL
-    is_github_shorthand = (
-        source.startswith(("github:", "gh:"))
-        or re.match(r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(@|#|$)", source)
+    is_github_shorthand = source.startswith(("github:", "gh:")) or re.match(
+        r"^[a-zA-Z0-9_.-]+/[a-zA-Z0-9_.-]+(@|#|$)", source
     )
     is_git_url = source.startswith(("http://", "https://", "git@"))
 
@@ -298,15 +408,19 @@ def resolve_source(source: str) -> Path:
         git_url, ref = _parse_github_source(source)
         return _clone_git_repo(git_url, ref)
 
-    # Assume it's a PyPI package name
+    # Assume it's a PyPI package name - validate it first
     import tempfile
 
+    # Validate PyPI package name to prevent command injection
+    # PyPI names: letters, numbers, hyphens, underscores, dots; can include version spec
+    validated_package = _validate_dependency_specifier(source)
+
     temp_dir = Path(tempfile.mkdtemp(prefix="reasoning-mcp-plugin-"))
-    console.print(f"[cyan]Installing package {source} from PyPI...[/cyan]")
+    console.print(f"[cyan]Installing package {validated_package} from PyPI...[/cyan]")
 
     try:
         subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--target", str(temp_dir), source],
+            [sys.executable, "-m", "pip", "install", "--target", str(temp_dir), "--", validated_package],
             check=True,
             capture_output=True,
             text=True,
@@ -324,7 +438,7 @@ def resolve_source(source: str) -> Path:
         raise InstallError(f"Failed to install package:\n{e.stderr}") from e
 
 
-def install_plugin_impl(ctx: "CLIContext", plugin_name: str, upgrade: bool) -> None:
+def install_plugin_impl(ctx: CLIContext, plugin_name: str, upgrade: bool) -> None:
     """Install a plugin from source.
 
     Args:
@@ -348,7 +462,9 @@ def install_plugin_impl(ctx: "CLIContext", plugin_name: str, upgrade: bool) -> N
         plugin_dest = plugins_dir / metadata.name
 
         if plugin_dest.exists() and not upgrade:
-            raise InstallError(f"Plugin '{metadata.name}' already exists. Use --upgrade to reinstall.")
+            raise InstallError(
+                f"Plugin '{metadata.name}' already exists. Use --upgrade to reinstall."
+            )
 
         # Display plugin information
         console.print("\n[bold]Plugin Information:[/bold]")
@@ -380,7 +496,7 @@ def install_plugin_impl(ctx: "CLIContext", plugin_name: str, upgrade: bool) -> N
         raise typer.Exit(1)
 
 
-def list_plugins_impl(ctx: "CLIContext") -> None:
+def list_plugins_impl(ctx: CLIContext) -> None:
     """Show installed plugins with status.
 
     Args:
@@ -425,7 +541,7 @@ def list_plugins_impl(ctx: "CLIContext") -> None:
         raise typer.Exit(1)
 
 
-def uninstall_plugin_impl(ctx: "CLIContext", plugin_name: str) -> None:
+def uninstall_plugin_impl(ctx: CLIContext, plugin_name: str) -> None:
     """Uninstall a plugin and cleanup its data.
 
     Args:

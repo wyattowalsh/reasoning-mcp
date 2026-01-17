@@ -8,6 +8,7 @@ This module provides the MCP tool interface for:
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING
 
 from reasoning_mcp.models.core import MethodIdentifier
@@ -17,6 +18,31 @@ from reasoning_mcp.selector import MethodSelector, SelectionConstraint
 
 if TYPE_CHECKING:
     from reasoning_mcp.models.core import MethodCategory
+
+logger = logging.getLogger(__name__)
+
+
+def _get_registry() -> MethodRegistry:
+    """Get the registry from AppContext or create a fallback for testing.
+
+    Returns:
+        MethodRegistry with methods registered
+    """
+    try:
+        from reasoning_mcp.server import get_app_context
+
+        return get_app_context().registry
+    except RuntimeError:
+        # Fallback for testing or standalone usage
+        logger.warning(
+            "AppContext not available, creating standalone registry. "
+            "Plugin-registered methods will not be available."
+        )
+        registry = MethodRegistry()
+        from reasoning_mcp.methods.native import register_all_native_methods
+
+        register_all_native_methods(registry)
+        return registry
 
 
 def methods_list(
@@ -48,8 +74,8 @@ def methods_list(
         List methods with specific tags:
         >>> ethical_methods = methods_list(tags=["ethical", "structured"])
     """
-    # Get the global registry (in production, this would be injected)
-    registry = MethodRegistry()
+    # Get the registry from AppContext (or fallback for testing)
+    registry = _get_registry()
 
     # Convert tags to set for filtering
     tags_set = set(tags) if tags else None
@@ -111,8 +137,8 @@ def methods_recommend(
         ...     "Calculate the optimal solution to this linear programming problem"
         ... )
     """
-    # Get the global registry
-    registry = MethodRegistry()
+    # Get the registry from AppContext (or fallback for testing)
+    registry = _get_registry()
 
     # Create selector
     selector = MethodSelector(registry)
@@ -169,8 +195,8 @@ def methods_compare(
         ...     problem="Debug this complex race condition in our async code"
         ... )
     """
-    # Get the global registry
-    registry = MethodRegistry()
+    # Get the registry from AppContext (or fallback for testing)
+    registry = _get_registry()
 
     # Create selector
     selector = MethodSelector(registry)
@@ -214,8 +240,7 @@ def methods_compare(
         # Analyze top method
         top_rec = method_recommendations[0]
         analysis_parts.append(
-            f"Best method: {top_rec.identifier} (score: {top_rec.score:.2f}). "
-            f"{top_rec.reasoning}"
+            f"Best method: {top_rec.identifier} (score: {top_rec.score:.2f}). {top_rec.reasoning}"
         )
 
         # Compare others
@@ -231,9 +256,7 @@ def methods_compare(
         # Note unscored methods
         unscored = [m for m in methods if m not in [r.identifier for r in method_recommendations]]
         if unscored:
-            analysis_parts.append(
-                f"\n\nMethods with insufficient fit: {', '.join(unscored)}"
-            )
+            analysis_parts.append(f"\n\nMethods with insufficient fit: {', '.join(unscored)}")
 
     analysis = "".join(analysis_parts)
 

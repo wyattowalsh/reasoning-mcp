@@ -18,15 +18,20 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Any
 from uuid import uuid4
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
     ThoughtType,
 )
-from reasoning_mcp.models.thought import ThoughtNode, ThoughtGraph
+from reasoning_mcp.models.thought import ThoughtGraph, ThoughtNode
+
+logger = structlog.get_logger(__name__)
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
 
@@ -34,17 +39,21 @@ if TYPE_CHECKING:
 CRASH_METADATA = MethodMetadata(
     identifier=MethodIdentifier.CRASH,
     name="CRASH",
-    description="Confidence-gated Reasoning with Automatic Strategy Handoff for adaptive problem solving",
+    description=(
+        "Confidence-gated Reasoning with Automatic Strategy Handoff for adaptive problem solving"
+    ),
     category=MethodCategory.HOLISTIC,
-    tags=frozenset({
-        "adaptive",
-        "confidence",
-        "strategy-switching",
-        "resilient",
-        "monitoring",
-        "fallback",
-        "holistic",
-    }),
+    tags=frozenset(
+        {
+            "adaptive",
+            "confidence",
+            "strategy-switching",
+            "resilient",
+            "monitoring",
+            "fallback",
+            "holistic",
+        }
+    ),
     complexity=8,  # High complexity - manages multiple strategies and confidence tracking
     supports_branching=True,  # Can explore multiple strategies as branches
     supports_revision=True,  # Revises approach when confidence drops
@@ -69,7 +78,7 @@ CRASH_METADATA = MethodMetadata(
 )
 
 
-class CRASHMethod:
+class CRASHMethod(ReasoningMethodBase):
     """CRASH (Confidence-gated Reasoning with Automatic Strategy Handoff) implementation.
 
     This class implements an adaptive reasoning method that monitors confidence levels
@@ -117,6 +126,8 @@ class CRASHMethod:
         ... )
     """
 
+    _use_sampling: bool = True
+
     # Available reasoning strategies
     STRATEGIES = {
         "direct": "Direct analytical approach to the problem",
@@ -143,13 +154,9 @@ class CRASHMethod:
             ValueError: If parameters are invalid
         """
         if not 0.0 <= confidence_threshold <= 1.0:
-            raise ValueError(
-                f"confidence_threshold must be 0.0-1.0, got {confidence_threshold}"
-            )
+            raise ValueError(f"confidence_threshold must be 0.0-1.0, got {confidence_threshold}")
         if max_strategy_switches < 1:
-            raise ValueError(
-                f"max_strategy_switches must be >= 1, got {max_strategy_switches}"
-            )
+            raise ValueError(f"max_strategy_switches must be >= 1, got {max_strategy_switches}")
         if fallback_strategy not in self.STRATEGIES:
             raise ValueError(
                 f"fallback_strategy must be one of {list(self.STRATEGIES.keys())}, "
@@ -167,6 +174,7 @@ class CRASHMethod:
         self._confidence_history: list[float] = []
         self._switch_count: int = 0
         self._step_counter: int = 0
+        self._execution_context: ExecutionContext | None = None
 
     @property
     def identifier(self) -> str:
@@ -222,12 +230,13 @@ class CRASHMethod:
         self._switch_count = 0
         self._step_counter = 0
 
-    async def execute(
+    async def execute(  # type: ignore[override]
         self,
         session: Session,
         problem: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtGraph:
         """Execute CRASH reasoning on the problem.
 
@@ -240,6 +249,7 @@ class CRASHMethod:
             context: Optional context with:
                 - initial_strategy: Strategy to start with (default: "direct")
                 - confidence_threshold: Override default threshold
+            execution_context: Optional execution context for LLM sampling
 
         Returns:
             A ThoughtGraph containing the initial reasoning and setup for continuation
@@ -260,6 +270,9 @@ class CRASHMethod:
 
         if not session.is_active:
             raise ValueError("Session must be active to execute reasoning")
+
+        # Store execution context for sampling
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -285,7 +298,11 @@ class CRASHMethod:
         initial_confidence = 0.7  # Start with moderate confidence
         self._confidence_history.append(initial_confidence)
 
-        content = self._generate_initial_content(problem, initial_strategy)
+        # Generate initial content using sampling if available
+        if execution_context and execution_context.can_sample:
+            content = await self._sample_initial_content(problem, initial_strategy, context)
+        else:
+            content = self._generate_initial_content(problem, initial_strategy)
 
         root = ThoughtNode(
             id=str(uuid4()),
@@ -314,7 +331,7 @@ class CRASHMethod:
 
         return graph
 
-    async def continue_reasoning(
+    async def continue_reasoning(  # type: ignore[override]
         self,
         session: Session,
         graph: ThoughtGraph,
@@ -369,19 +386,25 @@ class CRASHMethod:
         else:
             previous_thought = max(leaves, key=lambda n: n.step_number)
 
-        # Extract threshold from previous thought
-        threshold = previous_thought.metadata.get(
-            "confidence_threshold", self.confidence_threshold
-        )
+        # Extract threshold and problem from previous thought
+        threshold = previous_thought.metadata.get("confidence_threshold", self.confidence_threshold)
+        problem = previous_thought.metadata.get("problem", "")
+        if not problem and graph.root_id:
+            root = graph.nodes[graph.root_id]
+            problem = root.metadata.get("problem", "")
 
-        # Assess current confidence (simulated based on feedback and history)
-        current_confidence = self._assess_confidence(previous_thought, feedback)
+        # Assess current confidence using sampling if available
+        if self._execution_context and self._execution_context.can_sample:
+            current_confidence = await self._sample_confidence_assessment(
+                previous_thought, feedback
+            )
+        else:
+            current_confidence = self._assess_confidence(previous_thought, feedback)
         self._confidence_history.append(current_confidence)
 
         # Determine if we need to switch strategies
         should_switch = (
-            current_confidence < threshold
-            and self._switch_count < self.max_strategy_switches
+            current_confidence < threshold and self._switch_count < self.max_strategy_switches
         )
 
         if should_switch:
@@ -393,17 +416,27 @@ class CRASHMethod:
 
             # Create strategy switch thought
             thought_type = ThoughtType.BRANCH  # Use BRANCH to indicate strategy change
-            content = self._generate_strategy_switch_content(
-                previous_thought, new_strategy, current_confidence, feedback
-            )
+            if self._execution_context and self._execution_context.can_sample:
+                content = await self._sample_strategy_switch_content(
+                    previous_thought, new_strategy, current_confidence, feedback, problem
+                )
+            else:
+                content = self._generate_strategy_switch_content(
+                    previous_thought, new_strategy, current_confidence, feedback
+                )
             branch_id = f"strategy-{self._switch_count}-{new_strategy}"
         else:
             # Continue with current strategy
             thought_type = ThoughtType.CONTINUATION
-            content = self._generate_continuation_content(
-                previous_thought, current_confidence, feedback
-            )
-            branch_id = previous_thought.branch_id
+            if self._execution_context and self._execution_context.can_sample:
+                content = await self._sample_continuation_content(
+                    previous_thought, current_confidence, feedback, problem
+                )
+            else:
+                content = self._generate_continuation_content(
+                    previous_thought, current_confidence, feedback
+                )
+            branch_id = previous_thought.branch_id or "main"
 
         # Create new thought
         new_thought = ThoughtNode(
@@ -435,10 +468,7 @@ class CRASHMethod:
         session.add_thought(new_thought)
 
         # If we've reached max switches or high confidence, create conclusion
-        if (
-            self._switch_count >= self.max_strategy_switches
-            or current_confidence >= 0.9
-        ):
+        if self._switch_count >= self.max_strategy_switches or current_confidence >= 0.9:
             conclusion = self._create_conclusion(graph, new_thought)
             graph.add_thought(conclusion)
             session.add_thought(conclusion)
@@ -502,10 +532,11 @@ class CRASHMethod:
         """
         feedback_text = f"\n\nFeedback: {feedback}" if feedback else ""
 
+        prev_strategy = self._strategy_history[-2] if len(self._strategy_history) > 1 else "none"
         return (
             f"Step {self._step_counter}: STRATEGY SWITCH #{self._switch_count}\n\n"
             f"Confidence Drop Detected: {confidence:.2f} < {self.confidence_threshold}\n"
-            f"Previous Strategy: {self._strategy_history[-2] if len(self._strategy_history) > 1 else 'none'}\n"
+            f"Previous Strategy: {prev_strategy}\n"
             f"New Strategy: {new_strategy.upper()}\n"
             f"Description: {self.STRATEGIES[new_strategy]}\n\n"
             f"Reason for Switch:\n"
@@ -538,7 +569,8 @@ class CRASHMethod:
         feedback_text = f"\n\nIncorporating feedback: {feedback}" if feedback else ""
 
         return (
-            f"Step {self._step_counter}: Continuing with {self._current_strategy.upper()} Strategy\n\n"
+            f"Step {self._step_counter}: Continuing with "
+            f"{self._current_strategy.upper()} Strategy\n\n"
             f"Current Confidence: {confidence:.2f} (threshold: {self.confidence_threshold})\n"
             f"Strategy: {self.STRATEGIES[self._current_strategy]}\n\n"
             f"Building on previous step:\n"
@@ -620,14 +652,12 @@ class CRASHMethod:
 
         # Simulate confidence change based on various factors
         if feedback and any(
-            word in feedback.lower()
-            for word in ["struggling", "difficult", "unclear", "stuck"]
+            word in feedback.lower() for word in ["struggling", "difficult", "unclear", "stuck"]
         ):
             # Negative feedback decreases confidence
             adjustment = -0.15
         elif feedback and any(
-            word in feedback.lower()
-            for word in ["progress", "good", "clear", "working"]
+            word in feedback.lower() for word in ["progress", "good", "clear", "working"]
         ):
             # Positive feedback increases confidence
             adjustment = 0.1
@@ -653,8 +683,10 @@ class CRASHMethod:
         """
         # Avoid recently used strategies
         available = [
-            s for s in self.STRATEGIES.keys()
-            if s not in self._strategy_history[-2:] if self._strategy_history
+            s
+            for s in self.STRATEGIES
+            if s not in self._strategy_history[-2:]
+            if self._strategy_history
         ]
 
         if not available:
@@ -687,10 +719,7 @@ class CRASHMethod:
         switch_bonus = min(0.1, self._switch_count * 0.03)
 
         # Penalty if we've exhausted switches without resolution
-        if self._switch_count >= self.max_strategy_switches:
-            switch_penalty = 0.05
-        else:
-            switch_penalty = 0.0
+        switch_penalty = 0.05 if self._switch_count >= self.max_strategy_switches else 0.0
 
         return max(0.0, min(1.0, base + switch_bonus - switch_penalty))
 
@@ -712,6 +741,292 @@ class CRASHMethod:
                 improvements += 1
 
         return improvements / (len(self._confidence_history) - 1)
+
+    async def _sample_initial_content(
+        self,
+        problem: str,
+        strategy: str,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate initial content using LLM sampling.
+
+        Args:
+            problem: The problem to solve
+            strategy: The initial strategy to use
+            context: Optional additional context
+
+        Returns:
+            Content string for the initial thought
+        """
+        system_prompt = f"""You are an expert in adaptive reasoning using CRASH \
+(Confidence-gated Reasoning with Automatic Strategy Handoff).
+
+Your task is to begin reasoning using the {strategy.upper()} strategy.
+
+Strategy: {self.STRATEGIES[strategy]}
+
+Structure your response:
+1. Clearly state the problem you're addressing
+2. Explain why the {strategy} strategy is appropriate as a starting point
+3. Begin your reasoning using this strategy
+4. Be explicit about your confidence level and any uncertainties
+5. Provide your initial analysis or solution approach
+
+Be thorough and analytical. Your confidence will be monitored - if it drops, \
+we'll automatically switch strategies."""
+
+        user_prompt = f"""Problem: {problem}
+
+Strategy to use: {strategy.upper()} - {self.STRATEGIES[strategy]}
+
+Please begin your adaptive reasoning using this strategy."""
+
+        if context:
+            user_prompt += f"\n\nAdditional context: {context}"
+
+        result = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_initial_content(problem, strategy),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+        # If we got the fallback content, return it directly
+        if result == self._generate_initial_content(problem, strategy):
+            return result
+
+        header = (
+            f"Step {self._step_counter}: CRASH Reasoning Initiated\n\n"
+            f"Strategy: {strategy.upper()}\n"
+            f"Confidence Monitoring: Active (threshold: {self.confidence_threshold})\n"
+            f"Max Strategy Switches: {self.max_strategy_switches}\n\n"
+        )
+        footer = "\n\nInitial confidence: 0.7 (moderate - monitoring for drops)"
+        return f"{header}{result}{footer}"
+
+    async def _sample_confidence_assessment(
+        self,
+        previous: ThoughtNode,
+        feedback: str | None,
+    ) -> float:
+        """Assess confidence using LLM sampling.
+
+        Args:
+            previous: Previous thought node
+            feedback: Optional feedback
+
+        Returns:
+            Confidence score (0.0-1.0)
+        """
+        system_prompt = """You are an expert at assessing reasoning confidence in \
+adaptive problem-solving.
+
+Your task is to evaluate the confidence level of the current reasoning approach.
+
+Respond with ONLY a confidence score between 0.0 and 1.0, where:
+- 0.0-0.3: Very low confidence, major issues
+- 0.3-0.5: Low confidence, struggling
+- 0.5-0.7: Moderate confidence, some uncertainty
+- 0.7-0.85: Good confidence, making progress
+- 0.85-1.0: High confidence, strong approach
+
+Consider:
+- Clarity of reasoning
+- Progress toward solution
+- Presence of contradictions
+- Strength of evidence
+- Completeness of approach"""
+
+        feedback_text = f"\n\nUser feedback: {feedback}" if feedback else ""
+
+        user_prompt = f"""Previous reasoning step:
+{previous.content[:500]}...
+
+Current strategy: {self._current_strategy}
+Previous confidence: {previous.confidence}
+{feedback_text}
+
+What is your confidence assessment? Respond with only a number between 0.0 and 1.0."""
+
+        # Use a sentinel value to detect fallback
+        fallback_sentinel = "__FALLBACK__"
+        result = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: fallback_sentinel,
+            system_prompt=system_prompt,
+            temperature=0.3,
+            max_tokens=50,
+        )
+
+        # If we got the fallback, use heuristic method
+        if result == fallback_sentinel:
+            return self._assess_confidence(previous, feedback)
+
+        # Extract confidence value
+        confidence_text = result.strip()
+        try:
+            confidence = float(confidence_text)
+            return max(0.0, min(1.0, confidence))
+        except ValueError:
+            # If we can't parse, fall back to heuristic
+            return self._assess_confidence(previous, feedback)
+
+    async def _sample_strategy_switch_content(
+        self,
+        previous: ThoughtNode,
+        new_strategy: str,
+        confidence: float,
+        feedback: str | None,
+        problem: str,
+    ) -> str:
+        """Generate strategy switch content using LLM sampling.
+
+        Args:
+            previous: The previous thought
+            new_strategy: The new strategy being switched to
+            confidence: Current confidence level
+            feedback: Optional feedback
+            problem: Original problem
+
+        Returns:
+            Content string for the strategy switch thought
+        """
+        prev_strat = self._strategy_history[-2] if len(self._strategy_history) > 1 else "initial"
+        system_prompt = f"""You are an expert in adaptive reasoning using CRASH method.
+
+Confidence has dropped to {confidence:.2f}, which is below the threshold of \
+{self.confidence_threshold}.
+
+You need to SWITCH strategies from {prev_strat} to {new_strategy.upper()}.
+
+New strategy: {self.STRATEGIES[new_strategy]}
+
+Structure your response:
+1. Acknowledge the confidence drop and need for strategy change
+2. Briefly explain what wasn't working with the previous approach
+3. Explain why the new {new_strategy} strategy is better suited
+4. Begin fresh reasoning using the new strategy
+5. Build on any valid insights from the previous approach
+
+Be adaptive and show how the new strategy provides a better angle on the problem."""
+
+        feedback_text = f"\n\nUser feedback: {feedback}" if feedback else ""
+
+        prev_strat_name = (
+            self._strategy_history[-2] if len(self._strategy_history) > 1 else "initial"
+        )
+        user_prompt = f"""Original problem: {problem}
+
+Previous reasoning (confidence dropped to {confidence:.2f}):
+{previous.content[:300]}...
+
+Previous strategy: {prev_strat_name}
+New strategy: {new_strategy.upper()} - {self.STRATEGIES[new_strategy]}
+{feedback_text}
+
+Please switch to the new strategy and continue reasoning."""
+
+        result = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_strategy_switch_content(
+                previous, new_strategy, confidence, feedback
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+        # If we got the fallback content, return it directly
+        fallback_content = self._generate_strategy_switch_content(
+            previous, new_strategy, confidence, feedback
+        )
+        if result == fallback_content:
+            return result
+
+        prev_strat_short = self._strategy_history[-2] if len(self._strategy_history) > 1 else "none"
+        header = (
+            f"Step {self._step_counter}: STRATEGY SWITCH #{self._switch_count}\n\n"
+            f"Confidence Drop: {confidence:.2f} < {self.confidence_threshold}\n"
+            f"Previous: {prev_strat_short} → New: {new_strategy.upper()}\n\n"
+        )
+        footer = (
+            f"\n\nConfidence History: {[f'{c:.2f}' for c in self._confidence_history]}\n"
+            f"Strategy History: {self._strategy_history}"
+        )
+        return f"{header}{result}{footer}"
+
+    async def _sample_continuation_content(
+        self,
+        previous: ThoughtNode,
+        confidence: float,
+        feedback: str | None,
+        problem: str,
+    ) -> str:
+        """Generate continuation content using LLM sampling.
+
+        Args:
+            previous: The previous thought
+            confidence: Current confidence level
+            feedback: Optional feedback
+            problem: Original problem
+
+        Returns:
+            Content string for the continuation thought
+        """
+        system_prompt = f"""You are an expert in adaptive reasoning using CRASH method.
+
+Current confidence is {confidence:.2f}, which is above the threshold of {self.confidence_threshold}.
+
+You should CONTINUE with the current {self._current_strategy.upper()} strategy.
+
+Strategy: {self.STRATEGIES[self._current_strategy]}
+
+Structure your response:
+1. Acknowledge that the current strategy is working (confidence stable/improving)
+2. Build directly on the previous reasoning step
+3. Continue making progress using the same strategy
+4. Deepen the analysis or move toward solution
+5. Maintain or improve confidence
+
+Be thorough and show clear progress in your reasoning."""
+
+        feedback_text = f"\n\nUser feedback: {feedback}" if feedback else ""
+
+        user_prompt = f"""Original problem: {problem}
+
+Previous reasoning (confidence: {confidence:.2f}):
+{previous.content[:300]}...
+
+Current strategy: {self._current_strategy.upper()} - {self.STRATEGIES[self._current_strategy]}
+Switches used: {self._switch_count}/{self.max_strategy_switches}
+{feedback_text}
+
+Please continue reasoning with the current strategy."""
+
+        result = await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_continuation_content(
+                previous, confidence, feedback
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+        # If we got the fallback content, return it directly
+        fallback_content = self._generate_continuation_content(previous, confidence, feedback)
+        if result == fallback_content:
+            return result
+
+        header = (
+            f"Step {self._step_counter}: Continuing with "
+            f"{self._current_strategy.upper()} Strategy\n\n"
+            f"Confidence: {confidence:.2f} (stable)\n"
+            f"Strategy: {self.STRATEGIES[self._current_strategy]}\n\n"
+        )
+        footer = f"\n\nSwitches used: {self._switch_count}/{self.max_strategy_switches}"
+        return f"{header}{result}{footer}"
 
 
 # Export metadata and class

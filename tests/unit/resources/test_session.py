@@ -17,17 +17,40 @@ Each resource is tested for:
 """
 
 import json
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock, patch
-from uuid import uuid4
 
 import pytest
 
 from reasoning_mcp.models.core import MethodIdentifier, SessionStatus, ThoughtType
-from reasoning_mcp.models.session import Session, SessionConfig
-from reasoning_mcp.models.thought import ThoughtEdge, ThoughtGraph, ThoughtNode
+from reasoning_mcp.models.session import Session
+from reasoning_mcp.models.thought import ThoughtEdge, ThoughtNode
 from reasoning_mcp.resources.session import register_session_resources
 
+# ============================================================================
+# AppContext Fixture
+# ============================================================================
+
+
+@pytest.fixture(autouse=True)
+def mock_app_context(request):
+    """Mock get_app_context for all resource tests.
+
+    This fixture patches get_app_context at the source (reasoning_mcp.server)
+    to return a mock context. Tests can access mock_session_manager through
+    mock_app_context.session_manager.
+    """
+    mock_context = MagicMock()
+    mock_session_manager = AsyncMock()
+    mock_context.session_manager = mock_session_manager
+
+    with patch("reasoning_mcp.server.get_app_context", return_value=mock_context):
+        yield mock_context
+
+
+@pytest.fixture
+def mock_session_manager(mock_app_context):
+    """Provide the mock session manager for tests to configure."""
+    return mock_app_context.session_manager
 
 # ============================================================================
 # Fixtures
@@ -45,6 +68,7 @@ def mock_mcp():
 
     def mock_resource(uri_pattern):
         """Decorator to capture resource handlers."""
+
         def decorator(func):
             # Extract the pattern key for testing
             # session://{session_id} -> "session_state"
@@ -55,6 +79,7 @@ def mock_mcp():
                 key = "session_state"
             mcp._resource_handlers[key] = func
             return func
+
         return decorator
 
     mcp.resource = mock_resource
@@ -236,12 +261,10 @@ class TestSessionStateResource:
     """Test suite for the session state resource endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_session_state_basic(self, mock_mcp, linear_session):
+    async def test_get_session_state_basic(self, mock_mcp, mock_session_manager, linear_session):
         """Test basic session state retrieval returns valid JSON."""
         # Setup mock session manager
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         # Register resources
         register_session_resources(mock_mcp)
@@ -267,11 +290,9 @@ class TestSessionStateResource:
         assert parsed["status"] == SessionStatus.ACTIVE.value
 
     @pytest.mark.asyncio
-    async def test_get_session_state_includes_graph_data(self, mock_mcp, linear_session):
+    async def test_get_session_state_includes_graph_data(self, mock_mcp, mock_session_manager, linear_session):
         """Test that session state includes complete thought graph data."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -298,11 +319,9 @@ class TestSessionStateResource:
         assert root_node["confidence"] == 0.9
 
     @pytest.mark.asyncio
-    async def test_get_session_state_includes_metrics(self, mock_mcp, linear_session):
+    async def test_get_session_state_includes_metrics(self, mock_mcp, mock_session_manager, linear_session):
         """Test that session state includes complete metrics."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -323,11 +342,9 @@ class TestSessionStateResource:
         assert metrics["max_depth_reached"] == 2
 
     @pytest.mark.asyncio
-    async def test_get_session_state_includes_config(self, mock_mcp, linear_session):
+    async def test_get_session_state_includes_config(self, mock_mcp, mock_session_manager, linear_session):
         """Test that session state includes configuration."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -347,11 +364,9 @@ class TestSessionStateResource:
         assert config["max_thoughts"] == 100
 
     @pytest.mark.asyncio
-    async def test_get_session_state_not_found(self, mock_mcp):
+    async def test_get_session_state_not_found(self, mock_mcp, mock_session_manager):
         """Test that requesting a non-existent session raises ValueError."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=None)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -360,11 +375,9 @@ class TestSessionStateResource:
             await handler("nonexistent-id")
 
     @pytest.mark.asyncio
-    async def test_get_session_state_empty_session(self, mock_mcp, empty_session):
+    async def test_get_session_state_empty_session(self, mock_mcp, mock_session_manager, empty_session):
         """Test session state for a session with no thoughts."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=empty_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -380,11 +393,9 @@ class TestSessionStateResource:
         assert parsed["metrics"]["total_edges"] == 0
 
     @pytest.mark.asyncio
-    async def test_get_session_state_json_formatting(self, mock_mcp, linear_session):
+    async def test_get_session_state_json_formatting(self, mock_mcp, mock_session_manager, linear_session):
         """Test that JSON output is properly formatted with indentation."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_state"]
@@ -408,11 +419,9 @@ class TestSessionGraphResource:
     """Test suite for the session graph visualization resource endpoint."""
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_basic_structure(self, mock_mcp, linear_session):
+    async def test_get_session_graph_basic_structure(self, mock_mcp, mock_session_manager, linear_session):
         """Test basic mermaid graph generation."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -426,11 +435,9 @@ class TestSessionGraphResource:
         assert lines[0] == "graph TD"
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_linear_chain(self, mock_mcp, linear_session):
+    async def test_get_session_graph_linear_chain(self, mock_mcp, mock_session_manager, linear_session):
         """Test graph generation for linear thought chain."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -454,12 +461,10 @@ class TestSessionGraphResource:
         assert "(conf: 0.80)" in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_content_truncation(self, mock_mcp, linear_session):
+    async def test_get_session_graph_content_truncation(self, mock_mcp, mock_session_manager, linear_session):
         """Test that long content is truncated with ellipsis."""
         # The fixture has content longer than 50 chars
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -469,14 +474,15 @@ class TestSessionGraphResource:
         # The first thought is exactly 50 chars, so it won't have "..."
         assert "This is the initial thought to start our analysis" in result
         # The second thought is 45 chars, so it also won't be truncated
-        assert "Building on the initial thought, we explore deeper" in result or "Building on the initial thought, we explore deep" in result
+        assert (
+            "Building on the initial thought, we explore deeper" in result
+            or "Building on the initial thought, we explore deep" in result
+        )
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_with_branches(self, mock_mcp, branching_session):
+    async def test_get_session_graph_with_branches(self, mock_mcp, mock_session_manager, branching_session):
         """Test graph generation with branching structure."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=branching_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -494,11 +500,9 @@ class TestSessionGraphResource:
         assert "branch:" in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_edge_types(self, mock_mcp, branching_session):
+    async def test_get_session_graph_edge_types(self, mock_mcp, mock_session_manager, branching_session):
         """Test different edge types use different arrow styles."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=branching_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -514,11 +518,9 @@ class TestSessionGraphResource:
         assert "-.x" in result or "-.x|contradicts|" in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_branches_edge_type(self, mock_mcp, complex_session):
+    async def test_get_session_graph_branches_edge_type(self, mock_mcp, mock_session_manager, complex_session):
         """Test 'branches' edge type uses special arrow."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=complex_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -528,11 +530,9 @@ class TestSessionGraphResource:
         assert "==>" in result or "==>|branches|" in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_edge_labels(self, mock_mcp, branching_session):
+    async def test_get_session_graph_edge_labels(self, mock_mcp, mock_session_manager, branching_session):
         """Test that non-derives edges include labels."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=branching_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -543,11 +543,9 @@ class TestSessionGraphResource:
         assert "|contradicts|" in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_empty_session(self, mock_mcp, empty_session):
+    async def test_get_session_graph_empty_session(self, mock_mcp, mock_session_manager, empty_session):
         """Test graph generation for empty session."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=empty_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -558,11 +556,9 @@ class TestSessionGraphResource:
         assert 'empty["No thoughts in this session yet"]' in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_not_found(self, mock_mcp):
+    async def test_get_session_graph_not_found(self, mock_mcp, mock_session_manager):
         """Test that requesting graph for non-existent session raises ValueError."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=None)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -571,7 +567,7 @@ class TestSessionGraphResource:
             await handler("nonexistent-id")
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_quote_escaping(self, mock_mcp):
+    async def test_get_session_graph_quote_escaping(self, mock_mcp, mock_session_manager):
         """Test that quotes in content are properly escaped."""
         # Create session with quotes in content
         session = Session(id="quote-session")
@@ -587,9 +583,7 @@ class TestSessionGraphResource:
         )
         session.add_thought(thought)
 
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -599,7 +593,7 @@ class TestSessionGraphResource:
         assert '\\"quotes\\"' in result
 
     @pytest.mark.asyncio
-    async def test_get_session_graph_safe_node_ids(self, mock_mcp):
+    async def test_get_session_graph_safe_node_ids(self, mock_mcp, mock_session_manager):
         """Test that node IDs with hyphens are converted to underscores."""
         session = Session(id="hyphen-session")
         session.start()
@@ -614,9 +608,7 @@ class TestSessionGraphResource:
         )
         session.add_thought(thought)
 
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
         handler = mock_mcp._resource_handlers["session_graph"]
@@ -636,7 +628,7 @@ class TestSessionResourcesIntegration:
     """Integration tests for session resource endpoints."""
 
     @pytest.mark.asyncio
-    async def test_register_session_resources(self, mock_mcp):
+    async def test_register_session_resources(self, mock_mcp, mock_session_manager):
         """Test that register_session_resources registers both endpoints."""
         register_session_resources(mock_mcp)
 
@@ -649,11 +641,9 @@ class TestSessionResourcesIntegration:
         assert callable(mock_mcp._resource_handlers["session_graph"])
 
     @pytest.mark.asyncio
-    async def test_both_resources_use_same_session(self, mock_mcp, linear_session):
+    async def test_both_resources_use_same_session(self, mock_mcp, mock_session_manager, linear_session):
         """Test that both resources retrieve the same session data."""
-        mock_session_manager = AsyncMock()
         mock_session_manager.get = AsyncMock(return_value=linear_session)
-        mock_mcp.app_context.session_manager = mock_session_manager
 
         register_session_resources(mock_mcp)
 
@@ -678,11 +668,15 @@ class TestSessionResourcesIntegration:
         assert "root_1" in graph_result
 
     @pytest.mark.asyncio
-    async def test_resources_handle_various_session_states(self, mock_mcp):
+    async def test_resources_handle_various_session_states(self, mock_mcp, mock_session_manager):
         """Test resources work with sessions in different states."""
         # Test with different session statuses
-        for status in [SessionStatus.CREATED, SessionStatus.ACTIVE,
-                      SessionStatus.PAUSED, SessionStatus.COMPLETED]:
+        for status in [
+            SessionStatus.CREATED,
+            SessionStatus.ACTIVE,
+            SessionStatus.PAUSED,
+            SessionStatus.COMPLETED,
+        ]:
             session = Session(id=f"session-{status.value}")
             if status != SessionStatus.CREATED:
                 session.start()
@@ -691,9 +685,7 @@ class TestSessionResourcesIntegration:
             elif status == SessionStatus.COMPLETED:
                 session.complete()
 
-            mock_session_manager = AsyncMock()
             mock_session_manager.get = AsyncMock(return_value=session)
-            mock_mcp.app_context.session_manager = mock_session_manager
 
             register_session_resources(mock_mcp)
             state_handler = mock_mcp._resource_handlers["session_state"]

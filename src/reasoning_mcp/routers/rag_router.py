@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 RAG_ROUTER_METADATA = RouterMetadata(
     identifier=RouterIdentifier.RAG_ROUTER,
@@ -49,16 +48,14 @@ class RagRouter:
         self._initialized = True
         self._retrieval_threshold = 0.5
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route based on retrieval needs."""
         if not self._initialized:
             raise RuntimeError("RAGRouter must be initialized")
 
         # Assess retrieval need
         retrieval_score = self._assess_retrieval_need(query)
-        
+
         if retrieval_score > self._retrieval_threshold:
             # High retrieval need - use methods good with context
             return MethodIdentifier.CHAIN_OF_THOUGHT
@@ -69,28 +66,40 @@ class RagRouter:
     def _assess_retrieval_need(self, query: str) -> float:
         """Assess how much retrieval the query needs."""
         query_lower = query.lower()
-        
+
         retrieval_indicators = [
-            "what is", "who is", "when did", "where is",
-            "define", "explain", "describe", "tell me about",
-            "fact", "history", "information"
+            "what is",
+            "who is",
+            "when did",
+            "where is",
+            "define",
+            "explain",
+            "describe",
+            "tell me about",
+            "fact",
+            "history",
+            "information",
         ]
-        
+
         reasoning_indicators = [
-            "calculate", "solve", "prove", "derive",
-            "if", "then", "why", "how would"
+            "calculate",
+            "solve",
+            "prove",
+            "derive",
+            "if",
+            "then",
+            "why",
+            "how would",
         ]
-        
+
         retrieval_score = sum(
-            1 for indicator in retrieval_indicators
-            if indicator in query_lower
+            1 for indicator in retrieval_indicators if indicator in query_lower
         ) / len(retrieval_indicators)
-        
+
         reasoning_score = sum(
-            1 for indicator in reasoning_indicators
-            if indicator in query_lower
+            1 for indicator in reasoning_indicators if indicator in query_lower
         ) / len(reasoning_indicators)
-        
+
         # Balance retrieval vs reasoning
         if retrieval_score > reasoning_score:
             return 0.7
@@ -98,20 +107,18 @@ class RagRouter:
             return 0.3
         return 0.5
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget with retrieval awareness."""
         if not self._initialized:
             raise RuntimeError("RAGRouter must be initialized")
 
         retrieval_score = self._assess_retrieval_need(query)
         method = await self.route(query)
-        
+
         # Adjust budget based on retrieval needs
         retrieval_budget = int(budget * retrieval_score * 0.3)
         reasoning_budget = budget - retrieval_budget
-        
+
         return {
             method: reasoning_budget,
             "retrieval": retrieval_budget,

@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from reasoning_mcp.config import Settings
@@ -47,6 +47,7 @@ def setup_logging(
     if settings is None:
         try:
             from reasoning_mcp.config import get_settings
+
             settings = get_settings()
             effective_level = log_level or settings.log_level
             effective_format = log_format or settings.log_format
@@ -142,7 +143,12 @@ class LogContext:
         self._logger.setLevel(numeric_level)
         return self._logger
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: Any,
+    ) -> None:
         """Exit the context and restore original log level."""
         if self._logger is not None and self._original_level is not None:
             self._logger.setLevel(self._original_level)

@@ -7,8 +7,6 @@ phase transitions, configuration options, and edge cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.shannon import (
@@ -19,7 +17,6 @@ from reasoning_mcp.methods.native.shannon import (
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
@@ -181,10 +178,7 @@ class TestShannonThinkingExecution:
         session = Session().start()
 
         with pytest.raises(RuntimeError, match="must be initialized"):
-            await method.execute(
-                session=session,
-                input_text="Test problem"
-            )
+            await method.execute(session=session, input_text="Test problem")
 
     @pytest.mark.asyncio
     async def test_execute_creates_initial_thought(self):
@@ -194,8 +188,7 @@ class TestShannonThinkingExecution:
         session = Session().start()
 
         thought = await method.execute(
-            session=session,
-            input_text="Design a data compression algorithm"
+            session=session, input_text="Design a data compression algorithm"
         )
 
         assert thought.type == ThoughtType.INITIAL
@@ -208,10 +201,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Optimize signal transmission"
-        )
+        thought = await method.execute(session=session, input_text="Optimize signal transmission")
 
         assert thought.metadata["phase"] == ShannonPhase.PROBLEM_DEFINITION
         assert thought.metadata["phase_number"] == 1
@@ -224,10 +214,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert thought.step_number == 1
         assert method._step_counter == 1
@@ -239,10 +226,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        await method.execute(session=session, input_text="Test problem")
 
         assert method._phase_history == [ShannonPhase.PROBLEM_DEFINITION]
 
@@ -253,10 +237,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert thought.confidence == 0.6
 
@@ -268,10 +249,7 @@ class TestShannonThinkingExecution:
         session = Session().start()
         input_text = "Design error correction code"
 
-        thought = await method.execute(
-            session=session,
-            input_text=input_text
-        )
+        thought = await method.execute(session=session, input_text=input_text)
 
         assert thought.metadata["input"] == input_text
 
@@ -283,11 +261,7 @@ class TestShannonThinkingExecution:
         session = Session().start()
         context = {"domain": "communication systems", "priority": "high"}
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem",
-            context=context
-        )
+        thought = await method.execute(session=session, input_text="Test problem", context=context)
 
         assert thought.metadata["context"] == context
 
@@ -298,10 +272,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        await method.execute(session=session, input_text="Test problem")
 
         assert session.thought_count == 1
 
@@ -312,10 +283,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        await method.execute(session=session, input_text="Test problem")
 
         assert session.current_method == MethodIdentifier.SHANNON_THINKING
 
@@ -326,10 +294,7 @@ class TestShannonThinkingExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test problem"
-        )
+        thought = await method.execute(session=session, input_text="Test problem")
 
         assert "Problem Definition" in thought.content
         assert "Shannon" in thought.content
@@ -346,18 +311,16 @@ class TestShannonThinkingContinueReasoning:
 
         # Create a mock previous thought
         from reasoning_mcp.models.thought import ThoughtNode
+
         previous = ThoughtNode(
             type=ThoughtType.INITIAL,
             method_id=MethodIdentifier.SHANNON_THINKING,
             content="Test",
-            metadata={"phase": ShannonPhase.PROBLEM_DEFINITION}
+            metadata={"phase": ShannonPhase.PROBLEM_DEFINITION},
         )
 
         with pytest.raises(RuntimeError, match="must be initialized"):
-            await method.continue_reasoning(
-                session=session,
-                previous_thought=previous
-            )
+            await method.continue_reasoning(session=session, previous_thought=previous)
 
     @pytest.mark.asyncio
     async def test_continue_reasoning_increments_step_counter(self):
@@ -379,10 +342,7 @@ class TestShannonThinkingContinueReasoning:
         session = Session().start()
 
         first = await method.execute(session=session, input_text="Test problem")
-        second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first
-        )
+        second = await method.continue_reasoning(session=session, previous_thought=first)
 
         assert second.metadata["phase"] == ShannonPhase.CONSTRAINTS
         assert second.metadata["phase_number"] == 2
@@ -399,10 +359,7 @@ class TestShannonThinkingContinueReasoning:
 
         for _ in range(4):  # Advance through 4 more phases
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         expected_phases = [
@@ -424,10 +381,7 @@ class TestShannonThinkingContinueReasoning:
         session = Session().start()
 
         first = await method.execute(session=session, input_text="Test")
-        second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first
-        )
+        second = await method.continue_reasoning(session=session, previous_thought=first)
 
         assert second.parent_id == first.id
 
@@ -439,10 +393,7 @@ class TestShannonThinkingContinueReasoning:
         session = Session().start()
 
         first = await method.execute(session=session, input_text="Test")
-        second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first
-        )
+        second = await method.continue_reasoning(session=session, previous_thought=first)
 
         assert second.depth == first.depth + 1
 
@@ -454,10 +405,7 @@ class TestShannonThinkingContinueReasoning:
         session = Session().start()
 
         first = await method.execute(session=session, input_text="Test")
-        second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first
-        )
+        second = await method.continue_reasoning(session=session, previous_thought=first)
 
         assert ShannonPhase.CONSTRAINTS in method._phase_history
         assert second.metadata["phase_history"] == [
@@ -475,9 +423,7 @@ class TestShannonThinkingContinueReasoning:
         first = await method.execute(session=session, input_text="Test")
         # Skip directly to model phase with guidance
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance="Jump to model phase"
+            session=session, previous_thought=first, guidance="Jump to model phase"
         )
 
         assert second.metadata["phase"] == ShannonPhase.MODEL
@@ -491,9 +437,7 @@ class TestShannonThinkingContinueReasoning:
 
         first = await method.execute(session=session, input_text="Test")
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance="refine the problem definition"
+            session=session, previous_thought=first, guidance="refine the problem definition"
         )
 
         assert second.metadata["phase"] == ShannonPhase.PROBLEM_DEFINITION
@@ -521,10 +465,7 @@ class TestShannonThinkingPhaseContent:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Design compression algorithm"
-        )
+        thought = await method.execute(session=session, input_text="Design compression algorithm")
 
         content = thought.content.lower()
         assert "problem" in content
@@ -539,10 +480,7 @@ class TestShannonThinkingPhaseContent:
         session = Session().start()
 
         first = await method.execute(session=session, input_text="Test")
-        second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first
-        )
+        second = await method.continue_reasoning(session=session, previous_thought=first)
 
         content = second.content.lower()
         assert "constraint" in content
@@ -559,10 +497,7 @@ class TestShannonThinkingPhaseContent:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(2):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         model_thought = thoughts[-1]
@@ -582,10 +517,7 @@ class TestShannonThinkingPhaseContent:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(3):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         proof_thought = thoughts[-1]
@@ -604,10 +536,7 @@ class TestShannonThinkingPhaseContent:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(4):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         impl_thought = thoughts[-1]
@@ -630,10 +559,7 @@ class TestShannonThinkingThoughtTypes:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(2):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         model_thought = thoughts[-1]
@@ -650,10 +576,7 @@ class TestShannonThinkingThoughtTypes:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(3):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         proof_thought = thoughts[-1]
@@ -670,10 +593,7 @@ class TestShannonThinkingThoughtTypes:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(4):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         impl_thought = thoughts[-1]
@@ -688,9 +608,7 @@ class TestShannonThinkingThoughtTypes:
 
         first = await method.execute(session=session, input_text="Test")
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance="revise the problem statement"
+            session=session, previous_thought=first, guidance="revise the problem statement"
         )
 
         assert second.type == ThoughtType.REVISION
@@ -706,7 +624,7 @@ class TestShannonThinkingThoughtTypes:
         second = await method.continue_reasoning(
             session=session,
             previous_thought=first,
-            guidance="branch to explore alternative approach"
+            guidance="branch to explore alternative approach",
         )
 
         assert second.type == ThoughtType.BRANCH
@@ -725,10 +643,7 @@ class TestShannonThinkingConfidence:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(4):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         # Proof phase should have highest confidence
@@ -747,10 +662,7 @@ class TestShannonThinkingConfidence:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(3):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         verification_thought = thoughts[-1]
@@ -766,9 +678,7 @@ class TestShannonThinkingConfidence:
 
         first = await method.execute(session=session, input_text="Test")
         revision = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance="revise the approach"
+            session=session, previous_thought=first, guidance="revise the approach"
         )
 
         # Revision should have lower confidence than normal progression
@@ -790,17 +700,11 @@ class TestShannonThinkingEdgeCases:
         thoughts = [await method.execute(session=session, input_text="Test")]
         for _ in range(4):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         # Continue one more time
-        final = await method.continue_reasoning(
-            session=session,
-            previous_thought=thoughts[-1]
-        )
+        final = await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
 
         assert final.metadata["phase"] == ShannonPhase.IMPLEMENTATION
 
@@ -815,15 +719,11 @@ class TestShannonThinkingEdgeCases:
 
         # Refine in same phase
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance="refine problem definition"
+            session=session, previous_thought=first, guidance="refine problem definition"
         )
 
         third = await method.continue_reasoning(
-            session=session,
-            previous_thought=second,
-            guidance="iterate on problem definition"
+            session=session, previous_thought=second, guidance="iterate on problem definition"
         )
 
         assert first.metadata["phase"] == ShannonPhase.PROBLEM_DEFINITION
@@ -841,9 +741,7 @@ class TestShannonThinkingEdgeCases:
         guidance_text = "Focus on noise constraints"
 
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            guidance=guidance_text
+            session=session, previous_thought=first, guidance=guidance_text
         )
 
         assert second.metadata["guidance"] == guidance_text
@@ -858,16 +756,10 @@ class TestShannonThinkingEdgeCases:
 
         context = {"domain": "information theory", "complexity": "high"}
 
-        first = await method.execute(
-            session=session,
-            input_text="Test",
-            context=context
-        )
+        first = await method.execute(session=session, input_text="Test", context=context)
 
         second = await method.continue_reasoning(
-            session=session,
-            previous_thought=first,
-            context=context
+            session=session, previous_thought=first, context=context
         )
 
         assert second.metadata["context"] == context
@@ -881,12 +773,9 @@ class TestShannonThinkingEdgeCases:
 
         thoughts = [await method.execute(session=session, input_text="Test")]
 
-        for i in range(5):
+        for _i in range(5):
             thoughts.append(
-                await method.continue_reasoning(
-                    session=session,
-                    previous_thought=thoughts[-1]
-                )
+                await method.continue_reasoning(session=session, previous_thought=thoughts[-1])
             )
 
         for i, thought in enumerate(thoughts):
@@ -905,8 +794,7 @@ class TestShannonThinkingEdgeCases:
         assert session.metrics.methods_used[MethodIdentifier.SHANNON_THINKING] == 1
 
         await method.continue_reasoning(
-            session=session,
-            previous_thought=session.get_recent_thoughts(n=1)[0]
+            session=session, previous_thought=session.get_recent_thoughts(n=1)[0]
         )
 
         assert session.metrics.total_thoughts == 2

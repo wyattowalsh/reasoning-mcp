@@ -5,14 +5,19 @@ accuracy and robustness through diverse aggregation strategies.
 """
 
 from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
-
-from reasoning_mcp.ensemblers.der import Der, DER_METADATA
-from reasoning_mcp.ensemblers.moa import Moa, MOA_METADATA
-from reasoning_mcp.ensemblers.slm_mux import SlmMux, SLM_MUX_METADATA
-from reasoning_mcp.ensemblers.multi_agent_verification import MultiAgentVerification, MULTI_AGENT_VERIFICATION_METADATA
-from reasoning_mcp.ensemblers.ema_fusion import EmaFusion, EMA_FUSION_METADATA
-from reasoning_mcp.ensemblers.model_switch import ModelSwitch, MODEL_SWITCH_METADATA
-from reasoning_mcp.ensemblers.training_free_orchestration import TrainingFreeOrchestration, TRAINING_FREE_ORCHESTRATION_METADATA
+from reasoning_mcp.ensemblers.der import DER_METADATA, Der
+from reasoning_mcp.ensemblers.ema_fusion import EMA_FUSION_METADATA, EmaFusion
+from reasoning_mcp.ensemblers.moa import MOA_METADATA, Moa
+from reasoning_mcp.ensemblers.model_switch import MODEL_SWITCH_METADATA, ModelSwitch
+from reasoning_mcp.ensemblers.multi_agent_verification import (
+    MULTI_AGENT_VERIFICATION_METADATA,
+    MultiAgentVerification,
+)
+from reasoning_mcp.ensemblers.slm_mux import SLM_MUX_METADATA, SlmMux
+from reasoning_mcp.ensemblers.training_free_orchestration import (
+    TRAINING_FREE_ORCHESTRATION_METADATA,
+    TrainingFreeOrchestration,
+)
 
 # All ensembler classes
 ENSEMBLERS = {

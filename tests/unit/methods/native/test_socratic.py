@@ -31,7 +31,6 @@ from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtT
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
 
-
 # ============================================================================
 # Fixtures
 # ============================================================================
@@ -254,9 +253,7 @@ class TestSocraticExecution:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that execute() creates an initial thought."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         assert thought is not None
         assert isinstance(thought, ThoughtNode)
@@ -270,9 +267,7 @@ class TestSocraticExecution:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that execute() creates content with questioning dialogue."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         content = thought.content.lower()
         # Should contain question indicators
@@ -287,9 +282,7 @@ class TestSocraticExecution:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that execute() includes the input claim in the content."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         assert sample_claim in thought.content
 
@@ -320,9 +313,7 @@ class TestSocraticExecution:
         """Test that execute() adds thought to session."""
         initial_count = active_session.thought_count
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         assert active_session.thought_count == initial_count + 1
         assert thought.id in active_session.graph.nodes
@@ -333,9 +324,7 @@ class TestSocraticExecution:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that execute() sets initial confidence level."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Initial confidence should be relatively low (questioning process)
         assert 0.0 <= thought.confidence <= 1.0
@@ -349,9 +338,7 @@ class TestSocraticExecution:
         # Manually set step counter to simulate previous execution
         initialized_method._step_counter = 10
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Step counter should be reset to 1
         assert thought.step_number == 1
@@ -391,9 +378,7 @@ class TestSocraticContinueReasoning:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that continue_reasoning() increments step counter."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -407,9 +392,7 @@ class TestSocraticContinueReasoning:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that continue_reasoning() sets parent relationship."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -422,9 +405,7 @@ class TestSocraticContinueReasoning:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that continue_reasoning() increases depth."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first
@@ -437,9 +418,7 @@ class TestSocraticContinueReasoning:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that continue_reasoning() incorporates guidance."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         guidance = "What do you mean by 'best'?"
         second = await initialized_method.continue_reasoning(
@@ -454,9 +433,7 @@ class TestSocraticContinueReasoning:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that continue_reasoning() progressively increases confidence."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
         initial_confidence = first.confidence
 
         second = await initialized_method.continue_reasoning(
@@ -474,9 +451,7 @@ class TestSocraticContinueReasoning:
         thoughts = []
 
         # Execute initial thought
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
         thoughts.append(thought)
 
         # Continue through multiple steps to see phase progression
@@ -512,9 +487,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that steps 1-2 use PHASE_INITIAL."""
-        thought1 = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought1 = await initialized_method.execute(session=active_session, input_text=sample_claim)
         assert thought1.metadata["phase"] == SocraticReasoning.PHASE_INITIAL
 
         thought2 = await initialized_method.continue_reasoning(
@@ -527,9 +500,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that steps 3-4 use PHASE_ASSUMPTIONS."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to step 3
         for _ in range(2):
@@ -545,9 +516,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that steps 5-6 use PHASE_CONTRADICTIONS."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to step 5
         for _ in range(4):
@@ -563,9 +532,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that steps 7-8 use PHASE_EXPLORATION."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to step 7
         for _ in range(6):
@@ -581,9 +548,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that steps 9+ use PHASE_SYNTHESIS."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to step 9
         for _ in range(8):
@@ -600,9 +565,7 @@ class TestSocraticPhases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that thought types are appropriate for each phase."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Step 1: Initial phase -> INITIAL type
         assert thought.type == ThoughtType.INITIAL
@@ -648,9 +611,7 @@ class TestAssumptionExposure:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that assumptions are tracked in thought metadata."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to assumptions phase
         for _ in range(3):
@@ -669,9 +630,7 @@ class TestAssumptionExposure:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that assumptions phase contains assumption-related questions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to assumptions phase (step 3)
         for _ in range(2):
@@ -690,9 +649,7 @@ class TestAssumptionExposure:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that assumption count increments with guidance."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to assumptions phase
         for _ in range(2):
@@ -726,9 +683,7 @@ class TestQuestionTypes:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that initial phase asks clarifying questions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         content_lower = thought.content.lower()
         # Should ask about definitions and meaning
@@ -742,9 +697,7 @@ class TestQuestionTypes:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that probing questions dig deeper into concepts."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         thought = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thought
@@ -753,19 +706,14 @@ class TestQuestionTypes:
         # Second thought should probe deeper
         content_lower = thought.content.lower()
         assert "?" in thought.content  # Contains questions
-        assert any(
-            word in content_lower
-            for word in ["deeper", "probe", "why", "how", "explain"]
-        )
+        assert any(word in content_lower for word in ["deeper", "probe", "why", "how", "explain"])
 
     @pytest.mark.asyncio
     async def test_challenging_questions_find_contradictions(
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that contradiction phase asks challenging questions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to contradictions phase (step 5)
         for _ in range(4):
@@ -784,9 +732,7 @@ class TestQuestionTypes:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that exploration phase asks about implications."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to exploration phase (step 7)
         for _ in range(6):
@@ -814,9 +760,7 @@ class TestSynthesisAndConclusion:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that synthesis phase summarizes insights gained."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to synthesis phase (step 9)
         for _ in range(8):
@@ -835,9 +779,7 @@ class TestSynthesisAndConclusion:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that synthesis references identified assumptions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress through dialogue with assumptions
         for i in range(8):
@@ -855,9 +797,7 @@ class TestSynthesisAndConclusion:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that synthesis references the Socratic questioning process."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress to synthesis
         for _ in range(8):
@@ -886,9 +826,7 @@ class TestEdgeCases:
         """Test execution with a clear, simple topic."""
         simple_claim = "Water is essential for life"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=simple_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=simple_claim)
 
         assert thought is not None
         assert simple_claim in thought.content
@@ -901,9 +839,7 @@ class TestEdgeCases:
         """Test execution with a vague, unclear topic."""
         vague_claim = "Things are happening"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=vague_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=vague_claim)
 
         assert thought is not None
         assert vague_claim in thought.content
@@ -944,9 +880,7 @@ class TestEdgeCases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test continue_reasoning without guidance parameter."""
-        first = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        first = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         second = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first, guidance=None
@@ -960,9 +894,7 @@ class TestEdgeCases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test a long dialogue chain of 15+ thoughts."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Create chain of 15 thoughts
         for i in range(15):
@@ -1009,9 +941,7 @@ class TestEdgeCases:
         self, initialized_method: SocraticReasoning, active_session: Session, sample_claim: str
     ):
         """Test that contradictions are tracked in metadata."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
 
         # Progress through dialogue
         for _ in range(8):
@@ -1115,9 +1045,7 @@ class TestSocraticIntegration:
         """Test that confidence increases appropriately through dialogue."""
         confidences = []
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_claim
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_claim)
         confidences.append(thought.confidence)
 
         # Progress through 10 steps

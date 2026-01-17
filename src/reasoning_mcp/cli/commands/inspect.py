@@ -129,9 +129,7 @@ def format_plugin_info(plugin: dict[str, Any]) -> None:
 
     # Status with color coding
     status = plugin.get("status", "unknown")
-    status_color = (
-        "green" if status == "healthy" else "red" if status == "unhealthy" else "yellow"
-    )
+    status_color = "green" if status == "healthy" else "red" if status == "unhealthy" else "yellow"
     table.add_row("Status", f"[{status_color}]{status}[/{status_color}]")
 
     # Methods provided
@@ -148,7 +146,7 @@ def format_plugin_info(plugin: dict[str, Any]) -> None:
 
 
 def inspect_target(
-    ctx: "CLIContext",
+    ctx: CLIContext,
     target: str | None,
     inspect_type: str | None,
 ) -> None:
@@ -183,7 +181,7 @@ def inspect_target(
         raise typer.Exit(1)
 
 
-def _inspect_methods(ctx: "CLIContext", target: str | None, json_output: bool) -> None:
+def _inspect_methods(ctx: CLIContext, target: str | None, json_output: bool) -> None:
     """Inspect reasoning methods.
 
     Args:
@@ -264,7 +262,7 @@ def _inspect_methods(ctx: "CLIContext", target: str | None, json_output: bool) -
                     console.print(f"  Best For: {', '.join(method.best_for)}")
 
 
-def _inspect_sessions(ctx: "CLIContext", target: str | None, json_output: bool) -> None:
+def _inspect_sessions(ctx: CLIContext, target: str | None, json_output: bool) -> None:
     """Inspect reasoning sessions.
 
     Args:
@@ -307,7 +305,7 @@ def _inspect_sessions(ctx: "CLIContext", target: str | None, json_output: bool) 
         console.print("\nTip: Create a session using the appropriate MCP tools")
 
 
-def _inspect_pipelines(ctx: "CLIContext", target: str | None, json_output: bool) -> None:
+def _inspect_pipelines(ctx: CLIContext, target: str | None, json_output: bool) -> None:
     """Inspect reasoning pipelines.
 
     Args:

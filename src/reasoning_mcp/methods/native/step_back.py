@@ -11,7 +11,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.methods.base import MethodMetadata
+import structlog
+
+from reasoning_mcp.elicitation import (
+    ElicitationConfig,
+    elicit_selection,
+)
+from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethodBase
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
@@ -20,8 +26,10 @@ from reasoning_mcp.models.core import (
 from reasoning_mcp.models.thought import ThoughtNode
 
 if TYPE_CHECKING:
+    from reasoning_mcp.engine.executor import ExecutionContext
     from reasoning_mcp.models import Session
 
+logger = structlog.get_logger(__name__)
 
 # Metadata for Step Back method
 STEP_BACK_METADATA = MethodMetadata(
@@ -30,14 +38,16 @@ STEP_BACK_METADATA = MethodMetadata(
     description="Step back to consider higher-level concepts and abstract principles "
     "before solving specific problem details. Abstraction-first reasoning approach.",
     category=MethodCategory.SPECIALIZED,
-    tags=frozenset({
-        "abstraction",
-        "principles",
-        "conceptual",
-        "general-to-specific",
-        "high-level",
-        "strategic",
-    }),
+    tags=frozenset(
+        {
+            "abstraction",
+            "principles",
+            "conceptual",
+            "general-to-specific",
+            "high-level",
+            "strategic",
+        }
+    ),
     complexity=4,  # Medium complexity - requires abstraction skills
     supports_branching=False,  # Linear progression through abstraction levels
     supports_revision=True,  # Can revise both abstract and specific thoughts
@@ -65,7 +75,7 @@ STEP_BACK_METADATA = MethodMetadata(
 )
 
 
-class StepBack:
+class StepBack(ReasoningMethodBase):
     """Step Back reasoning method implementation.
 
     This class implements an abstraction-first reasoning pattern where we:
@@ -116,13 +126,21 @@ class StepBack:
     PHASE_APPLICATION = "APPLICATION"
     PHASE_REFINEMENT = "REFINEMENT"
 
-    def __init__(self) -> None:
-        """Initialize the Step Back method."""
+    def __init__(self, enable_elicitation: bool = True) -> None:
+        """Initialize the Step Back method.
+
+        Args:
+            enable_elicitation: Whether to enable user interaction for guiding
+                abstraction level selection (default: True)
+        """
         self._initialized = False
         self._step_counter = 0
         self._current_phase = self.PHASE_ABSTRACTION
         self._abstraction_levels: list[str] = []
         self._identified_principles: list[str] = []
+        self._use_sampling = False
+        self._execution_context: ExecutionContext | None = None
+        self.enable_elicitation = enable_elicitation
 
     @property
     def identifier(self) -> str:
@@ -184,6 +202,7 @@ class StepBack:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Execute the Step Back method.
 
@@ -195,6 +214,7 @@ class StepBack:
             session: The current reasoning session
             input_text: The problem or question to reason about
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A ThoughtNode representing the initial abstraction step
@@ -215,9 +235,11 @@ class StepBack:
             >>> assert thought.method_id == MethodIdentifier.STEP_BACK
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Step Back method must be initialized before execution"
-            )
+            raise RuntimeError("Step Back method must be initialized before execution")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Reset for new execution
         self._step_counter = 1
@@ -225,8 +247,64 @@ class StepBack:
         self._abstraction_levels = []
         self._identified_principles = []
 
-        # Create the initial abstraction thought
-        content = self._generate_abstraction_thought(input_text, context)
+        # Elicit user guidance on abstraction level if enabled
+        selected_abstraction = None
+        if (
+            self.enable_elicitation
+            and self._execution_context
+            and hasattr(self._execution_context, "ctx")
+        ):
+            try:
+                options = [
+                    {
+                        "id": "conceptual",
+                        "label": (
+                            "Conceptual/Theoretical - "
+                            "Step back to fundamental theories and concepts"
+                        ),
+                    },
+                    {
+                        "id": "methodological",
+                        "label": "Methodological - Step back to examine approaches and methods",
+                    },
+                    {
+                        "id": "domain",
+                        "label": "Domain Principles - Step back to core principles in the domain",
+                    },
+                    {
+                        "id": "system",
+                        "label": "System Thinking - Step back to see the broader system context",
+                    },
+                ]
+                config = ElicitationConfig(timeout=15, required=False, default_on_timeout=None)
+                if self._execution_context.ctx is None:
+                    raise RuntimeError("Execution context has no ctx attribute for elicitation")
+                selection = await elicit_selection(
+                    self._execution_context.ctx,
+                    "Which abstraction level should we step back to?",
+                    options,
+                    config=config,
+                )
+                if selection:
+                    selected_abstraction = selection.selected
+            except (TimeoutError, ConnectionError, OSError, ValueError) as e:
+                logger.warning(
+                    "elicitation_failed",
+                    method="execute",
+                    error=str(e),
+                )
+                # Fall back to default behavior on elicitation error
+            except RuntimeError:
+                # Re-raise RuntimeError (our own validation)
+                raise
+
+        # Create the initial abstraction thought (use sampling if available)
+        if self._use_sampling:
+            content = await self._sample_abstraction_thought(
+                input_text, context, selected_abstraction
+            )
+        else:
+            content = self._generate_abstraction_thought(input_text, context, selected_abstraction)
 
         thought = ThoughtNode(
             type=ThoughtType.INITIAL,
@@ -241,6 +319,7 @@ class StepBack:
                 "reasoning_type": "step_back",
                 "phase": self._current_phase,
                 "abstraction_level": 1,
+                "sampled": self._use_sampling,
             },
         )
 
@@ -257,6 +336,7 @@ class StepBack:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: ExecutionContext | None = None,
     ) -> ThoughtNode:
         """Continue reasoning from a previous thought.
 
@@ -269,6 +349,7 @@ class StepBack:
             previous_thought: The thought to continue from
             guidance: Optional guidance for the next step
             context: Optional additional context
+            execution_context: Optional ExecutionContext for LLM sampling
 
         Returns:
             A new ThoughtNode continuing the step-back reasoning
@@ -290,9 +371,11 @@ class StepBack:
             >>> assert second.metadata["phase"] == StepBack.PHASE_PRINCIPLES
         """
         if not self._initialized:
-            raise RuntimeError(
-                "Step Back method must be initialized before continuation"
-            )
+            raise RuntimeError("Step Back method must be initialized before continuation")
+
+        # Configure sampling if execution_context provides it
+        self._use_sampling = execution_context is not None and execution_context.can_sample
+        self._execution_context = execution_context
 
         # Increment step counter
         self._step_counter += 1
@@ -300,12 +383,19 @@ class StepBack:
         # Update phase based on progress
         self._update_phase(previous_thought, guidance)
 
-        # Generate content based on current phase
-        content = self._generate_phase_content(
-            previous_thought=previous_thought,
-            guidance=guidance,
-            context=context,
-        )
+        # Generate content based on current phase (use sampling if available)
+        if self._use_sampling:
+            content = await self._sample_phase_content(
+                previous_thought=previous_thought,
+                guidance=guidance,
+                context=context,
+            )
+        else:
+            content = self._generate_phase_content(
+                previous_thought=previous_thought,
+                guidance=guidance,
+                context=context,
+            )
 
         # Determine thought type
         thought_type = self._determine_thought_type()
@@ -329,6 +419,7 @@ class StepBack:
                 "phase": self._current_phase,
                 "abstraction_level": self._get_abstraction_level(),
                 "principles_identified": len(self._identified_principles),
+                "sampled": self._use_sampling,
             },
         )
 
@@ -368,6 +459,7 @@ class StepBack:
         self,
         input_text: str,
         context: dict[str, Any] | None,
+        selected_abstraction: str | None = None,
     ) -> str:
         """Generate the initial abstraction thought content.
 
@@ -377,6 +469,7 @@ class StepBack:
         Args:
             input_text: The problem or question to reason about
             context: Optional additional context
+            selected_abstraction: User-selected abstraction level (if elicited)
 
         Returns:
             The content for the abstraction thought
@@ -385,9 +478,21 @@ class StepBack:
             In a full implementation, this would use an LLM to generate
             the actual abstraction. This is a placeholder providing structure.
         """
+        abstraction_focus = ""
+        if selected_abstraction:
+            focus_map = {
+                "conceptual": "fundamental theories and concepts",
+                "methodological": "approaches and methods",
+                "domain": "core principles in the domain",
+                "system": "the broader system context",
+            }
+            abstraction_focus = (
+                f"\n\nFocus: Examining {focus_map.get(selected_abstraction, 'high-level patterns')}"
+            )
+
         return (
             f"Step {self._step_counter}: Stepping Back - Abstraction\n\n"
-            f"Specific Problem: {input_text}\n\n"
+            f"Specific Problem: {input_text}{abstraction_focus}\n\n"
             f"Before diving into the specifics, let me step back and consider:\n\n"
             f"1. What is the general class of problems this belongs to?\n"
             f"2. What are the underlying concepts and principles at play?\n"
@@ -447,7 +552,7 @@ class StepBack:
 
     def _generate_principles_content(
         self,
-            previous_thought: ThoughtNode,
+        previous_thought: ThoughtNode,
         guidance: str | None,
         context: dict[str, Any] | None,
     ) -> str:
@@ -629,3 +734,128 @@ class StepBack:
         }
 
         return level_map.get(self._current_phase, 3)
+
+    async def _sample_abstraction_thought(
+        self,
+        input_text: str,
+        context: dict[str, Any] | None,
+        selected_abstraction: str | None = None,
+    ) -> str:
+        """Generate the initial abstraction thought using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        the actual abstraction step rather than placeholder content.
+
+        Args:
+            input_text: The problem or question to reason about
+            context: Optional additional context
+            selected_abstraction: User-selected abstraction level (if elicited)
+
+        Returns:
+            The content for the abstraction thought
+        """
+        # Build focus guidance based on user's selection
+        focus_guidance = ""
+        if selected_abstraction:
+            focus_map = {
+                "conceptual": "fundamental theories and concepts that underlie this domain",
+                "methodological": "different approaches and methods that could be applied",
+                "domain": "core principles and laws within this specific domain",
+                "system": "the broader system context and how components interact",
+            }
+            focus_text = focus_map.get(selected_abstraction, "high-level patterns and frameworks")
+            focus_guidance = f"\n\nUser guidance: Focus particularly on {focus_text}."
+
+        system_prompt = f"""You are a reasoning assistant using the Step Back methodology.
+This method involves stepping back from specific problems to consider higher-level concepts,
+abstract principles, and general patterns before solving the specific problem.
+
+For the initial abstraction step:
+1. Acknowledge the specific problem
+2. Step back to identify the general class or category of problems this belongs to
+3. Consider underlying concepts and principles at play
+4. Identify relevant higher-level patterns or frameworks
+5. Explain how this abstraction will help solve the specific problem{focus_guidance}
+
+Be thoughtful and thorough in your abstraction. Focus on conceptual understanding."""
+
+        user_prompt = f"""Specific Problem: {input_text}
+
+Apply the Step Back method's initial abstraction phase. Step back from this specific problem
+to consider higher-level concepts, underlying principles, and general patterns that are relevant.
+What is the broader class of problems this belongs to, and what fundamental concepts apply?"""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_abstraction_thought(
+                input_text, context, selected_abstraction
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=800,
+        )
+
+    async def _sample_phase_content(
+        self,
+        previous_thought: ThoughtNode,
+        guidance: str | None,
+        context: dict[str, Any] | None,
+    ) -> str:
+        """Generate phase content using LLM sampling.
+
+        Uses the execution context's sampling capability to generate
+        content for the current phase rather than placeholder content.
+
+        Args:
+            previous_thought: The thought to build upon
+            guidance: Optional guidance for the next step
+            context: Optional additional context
+
+        Returns:
+            The content for the current phase thought
+        """
+        # Get the original input if available
+        original_input = previous_thought.metadata.get("input", "the problem")
+
+        # Phase-specific system prompts
+        phase_prompts = {
+            self.PHASE_ABSTRACTION: """You are continuing the Step Back abstraction phase.
+Build upon the previous abstraction by identifying even more fundamental concepts and patterns.""",
+            self.PHASE_PRINCIPLES: """You are in the Step Back principles identification phase.
+Now that you've stepped back to see the bigger picture, identify the fundamental principles,
+rules, and laws that apply to this problem domain.""",
+            self.PHASE_FRAMEWORK: """You are in the Step Back framework building phase.
+With principles identified, construct a conceptual framework that connects these high-level
+ideas and shows how they relate to the problem space.""",
+            self.PHASE_APPLICATION: """You are in the Step Back application phase.
+Apply the high-level insights, principles, and framework you've developed to solve the
+original specific problem. Ground your solution in the abstract principles.""",
+            self.PHASE_REFINEMENT: """You are in the Step Back refinement phase.
+Refine and validate the solution by checking it against the identified principles and
+ensuring it addresses both the specific problem and adheres to general principles.""",
+        }
+
+        system_prompt = phase_prompts.get(
+            self._current_phase,
+            "You are continuing the Step Back reasoning process.",
+        )
+
+        # Build user prompt based on phase
+        guidance_text = f"\n\nGuidance: {guidance}" if guidance else ""
+        user_prompt = f"""Previous reasoning:
+{previous_thought.content}
+
+Current phase: {self._current_phase}
+Original problem: {original_input}{guidance_text}
+
+Continue the Step Back reasoning in the {self._current_phase} phase."""
+
+        return await self._sample_with_fallback(
+            user_prompt=user_prompt,
+            fallback_generator=lambda: self._generate_phase_content(
+                previous_thought, guidance, context
+            ),
+            system_prompt=system_prompt,
+            temperature=0.7,
+            max_tokens=1000,
+        )

@@ -19,8 +19,6 @@ Tests cover:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.least_to_most import (
@@ -35,7 +33,6 @@ from reasoning_mcp.models.core import (
 )
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -255,9 +252,7 @@ class TestLeastToMostExecution:
         sample_input: str,
     ):
         """Test that execute creates an initial thought."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert thought is not None
         assert isinstance(thought, ThoughtNode)
@@ -274,9 +269,7 @@ class TestLeastToMostExecution:
         sample_input: str,
     ):
         """Test that execute creates thought with decomposition content."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert "Decomposition" in thought.content
         assert "Subproblem" in thought.content
@@ -292,9 +285,7 @@ class TestLeastToMostExecution:
         """Test that execute updates the session."""
         initial_count = active_session.thought_count
 
-        await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert active_session.thought_count == initial_count + 1
         assert active_session.current_method == MethodIdentifier.LEAST_TO_MOST
@@ -325,9 +316,7 @@ class TestLeastToMostExecution:
     ):
         """Test that execute resets internal state for new execution."""
         # Execute once to set state
-        await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Verify state was set
         assert initialized_method._step_counter == 1
@@ -335,9 +324,7 @@ class TestLeastToMostExecution:
 
         # Execute again with different input
         session2 = Session().start()
-        await initialized_method.execute(
-            session=session2, input_text="Different problem"
-        )
+        await initialized_method.execute(session=session2, input_text="Different problem")
 
         # Verify state was reset
         assert initialized_method._step_counter == 1
@@ -360,9 +347,7 @@ class TestLeastToMostDecomposition:
         sample_input: str,
     ):
         """Test that decomposition creates subproblems."""
-        await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert len(initialized_method._subproblems) > 0
         assert initialized_method._decomposition_complete is False
@@ -375,9 +360,7 @@ class TestLeastToMostDecomposition:
         sample_input: str,
     ):
         """Test that decomposition thought has correct metadata."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert thought.metadata["stage"] == "decomposition"
         assert thought.metadata["reasoning_type"] == "least_to_most"
@@ -391,9 +374,7 @@ class TestLeastToMostDecomposition:
         sample_input: str,
     ):
         """Test that decomposition has appropriate confidence."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert thought.confidence == 0.75  # Initial decomposition confidence
 
@@ -419,9 +400,7 @@ class TestLeastToMostContinueReasoning:
         )
 
         with pytest.raises(RuntimeError, match="must be initialized before continuation"):
-            await method.continue_reasoning(
-                session=active_session, previous_thought=thought
-            )
+            await method.continue_reasoning(session=active_session, previous_thought=thought)
 
     @pytest.mark.asyncio
     async def test_continue_from_decomposition_creates_ordering(
@@ -461,7 +440,7 @@ class TestLeastToMostContinueReasoning:
 
         assert initialized_method._step_counter == 1
 
-        second_thought = await initialized_method.continue_reasoning(
+        await initialized_method.continue_reasoning(
             session=active_session, previous_thought=first_thought
         )
 
@@ -552,12 +531,10 @@ class TestLeastToMostSubproblemSolving:
     ):
         """Test solving multiple subproblems sequentially."""
         # Start reasoning
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Continue through ordering and first two subproblems
-        for i in range(3):
+        for _i in range(3):
             thought = await initialized_method.continue_reasoning(
                 session=active_session, previous_thought=thought
             )
@@ -573,9 +550,7 @@ class TestLeastToMostSubproblemSolving:
         sample_input: str,
     ):
         """Test that subproblem progress is tracked in metadata."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         num_subproblems = len(initialized_method._subproblems)
 
@@ -601,9 +576,7 @@ class TestLeastToMostSubproblemSolving:
         sample_input: str,
     ):
         """Test that later solutions reference previous solutions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Ordering
         thought = await initialized_method.continue_reasoning(
@@ -639,10 +612,7 @@ class TestLeastToMostConfidence:
         sample_input: str,
     ):
         """Test that confidence increases as subproblems are solved."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
-        initial_confidence = thought.confidence
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Ordering
         thought = await initialized_method.continue_reasoning(
@@ -673,9 +643,7 @@ class TestLeastToMostConfidence:
         sample_input: str,
     ):
         """Test that final synthesis has highest confidence."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Continue through all steps to synthesis
         for _ in range(5):  # Ordering + 3 subproblems + synthesis
@@ -703,9 +671,7 @@ class TestLeastToMostSynthesis:
         sample_input: str,
     ):
         """Test that synthesis occurs after all subproblems are solved."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Continue through ordering and all subproblems
         num_subproblems = len(initialized_method._subproblems)
@@ -730,9 +696,7 @@ class TestLeastToMostSynthesis:
         sample_input: str,
     ):
         """Test that synthesis uses appropriate thought type."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         # Continue to synthesis
         num_subproblems = len(initialized_method._subproblems)
@@ -752,9 +716,7 @@ class TestLeastToMostSynthesis:
         sample_input: str,
     ):
         """Test that synthesis references all subproblem solutions."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         num_subproblems = len(initialized_method._subproblems)
 
@@ -766,7 +728,9 @@ class TestLeastToMostSynthesis:
 
         # Synthesis should reference all solutions
         for i in range(num_subproblems):
-            assert f"Solution {i+1}" in thought.content or "Subproblem Solutions:" in thought.content
+            assert (
+                f"Solution {i + 1}" in thought.content or "Subproblem Solutions:" in thought.content
+            )
 
 
 # ============================================================================
@@ -778,43 +742,31 @@ class TestLeastToMostEdgeCases:
     """Test suite for edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_simple_problem(
-        self, initialized_method: LeastToMost, active_session: Session
-    ):
+    async def test_simple_problem(self, initialized_method: LeastToMost, active_session: Session):
         """Test handling of already simple problem."""
         simple_input = "What is 2 + 2?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=simple_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=simple_input)
 
         # Should still decompose, even if simple
         assert len(initialized_method._subproblems) > 0
         assert thought.type == ThoughtType.INITIAL
 
     @pytest.mark.asyncio
-    async def test_empty_input(
-        self, initialized_method: LeastToMost, active_session: Session
-    ):
+    async def test_empty_input(self, initialized_method: LeastToMost, active_session: Session):
         """Test handling of empty input."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=""
-        )
+        thought = await initialized_method.execute(session=active_session, input_text="")
 
         # Should still create thought with empty input
         assert thought is not None
         assert thought.metadata["input"] == ""
 
     @pytest.mark.asyncio
-    async def test_very_long_input(
-        self, initialized_method: LeastToMost, active_session: Session
-    ):
+    async def test_very_long_input(self, initialized_method: LeastToMost, active_session: Session):
         """Test handling of very long input."""
         long_input = "Solve this problem: " + "x " * 1000
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=long_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=long_input)
 
         assert thought is not None
         assert thought.metadata["input"] == long_input
@@ -828,9 +780,7 @@ class TestLeastToMostEdgeCases:
         session2 = Session().start()
 
         # Execute on first session
-        thought1 = await initialized_method.execute(
-            session=session1, input_text=sample_input
-        )
+        thought1 = await initialized_method.execute(session=session1, input_text=sample_input)
 
         # Execute on second session
         thought2 = await initialized_method.execute(
@@ -873,9 +823,7 @@ class TestLeastToMostEdgeCases:
         thoughts = []
 
         # Create initial thought
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
         thoughts.append(thought)
 
         # Create several continuation thoughts
@@ -897,9 +845,7 @@ class TestLeastToMostEdgeCases:
         sample_input: str,
     ):
         """Test that depth increases with each continuation."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
         assert thought.depth == 0
 
         # First continuation
@@ -924,14 +870,10 @@ class TestLeastToMostEdgeCases:
         """Test that session metrics are properly updated."""
         initial_thoughts = active_session.metrics.total_thoughts
 
-        await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        await initialized_method.execute(session=active_session, input_text=sample_input)
 
         assert active_session.metrics.total_thoughts == initial_thoughts + 1
-        assert (
-            active_session.metrics.methods_used[MethodIdentifier.LEAST_TO_MOST] == 1
-        )
+        assert active_session.metrics.methods_used[MethodIdentifier.LEAST_TO_MOST] == 1
 
     @pytest.mark.asyncio
     async def test_none_context_handling(
@@ -983,9 +925,7 @@ class TestLeastToMostFullChain:
     ):
         """Test a complete reasoning chain from start to synthesis."""
         # Execute initial decomposition
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
         assert thought.metadata["stage"] == "decomposition"
 
         # Ordering step
@@ -1010,7 +950,9 @@ class TestLeastToMostFullChain:
         assert thought.metadata["stage"] == "synthesis"
 
         # Verify complete chain
-        assert active_session.thought_count == num_subproblems + 3  # decomp + ordering + subproblems + synthesis
+        assert (
+            active_session.thought_count == num_subproblems + 3
+        )  # decomp + ordering + subproblems + synthesis
 
     @pytest.mark.asyncio
     async def test_session_state_after_completion(
@@ -1020,9 +962,7 @@ class TestLeastToMostFullChain:
         sample_input: str,
     ):
         """Test session state after completing full reasoning chain."""
-        thought = await initialized_method.execute(
-            session=active_session, input_text=sample_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=sample_input)
 
         num_subproblems = len(initialized_method._subproblems)
 

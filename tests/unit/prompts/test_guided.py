@@ -23,6 +23,8 @@ from reasoning_mcp.server import AppContext
 class MockReasoningMethod:
     """Mock reasoning method for testing."""
 
+    streaming_context = None
+
     def __init__(self, identifier: str, name: str, description: str, category: str):
         self._identifier = identifier
         self._name = name
@@ -48,14 +50,19 @@ class MockReasoningMethod:
     async def initialize(self) -> None:
         pass
 
-    async def execute(self, session, input_text, *, context=None):
+    async def execute(self, session, input_text, *, context=None, execution_context=None):
         pass
 
-    async def continue_reasoning(self, session, previous_thought, *, guidance=None, context=None):
+    async def continue_reasoning(
+        self, session, previous_thought, *, guidance=None, context=None, execution_context=None
+    ):
         pass
 
     async def health_check(self) -> bool:
         return True
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        pass
 
 
 @pytest.fixture

@@ -10,7 +10,8 @@ This module provides comprehensive fixtures for integration testing:
 - Data fixtures for sample problems and graphs
 """
 
-from typing import Any, AsyncGenerator
+from collections.abc import AsyncGenerator
+from typing import Any
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -21,29 +22,24 @@ from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    PipelineStageType,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.pipeline import (
     Accumulator,
     Condition,
     ConditionalPipeline,
-    ErrorHandler,
     LoopPipeline,
     MergeStrategy,
     MethodStage,
     ParallelPipeline,
     SequencePipeline,
     SwitchPipeline,
-    Transform,
 )
-from reasoning_mcp.models.session import Session, SessionConfig, SessionMetrics
-from reasoning_mcp.models.thought import ThoughtEdge, ThoughtGraph, ThoughtNode
+from reasoning_mcp.models.session import Session, SessionConfig
+from reasoning_mcp.models.thought import ThoughtGraph, ThoughtNode
 from reasoning_mcp.registry import MethodRegistry
-from reasoning_mcp.server import AppContext, mcp
+from reasoning_mcp.server import AppContext
 from reasoning_mcp.sessions import SessionManager
-
 
 # ============================================================================
 # SESSION FIXTURES
@@ -295,15 +291,9 @@ def sample_sequence_pipeline() -> SequencePipeline:
     return SequencePipeline(
         name="test_sequence",
         stages=[
-            MethodStage(
-                method_id=MethodIdentifier.CHAIN_OF_THOUGHT, name="stage_1"
-            ),
-            MethodStage(
-                method_id=MethodIdentifier.SELF_REFLECTION, name="stage_2"
-            ),
-            MethodStage(
-                method_id=MethodIdentifier.CHAIN_OF_THOUGHT, name="stage_3"
-            ),
+            MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT, name="stage_1"),
+            MethodStage(method_id=MethodIdentifier.SELF_REFLECTION, name="stage_2"),
+            MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT, name="stage_3"),
         ],
     )
 
@@ -322,9 +312,7 @@ def sample_parallel_pipeline() -> ParallelPipeline:
             MethodStage(method_id=MethodIdentifier.CAUSAL_REASONING),
             MethodStage(method_id=MethodIdentifier.COUNTERFACTUAL),
         ],
-        merge_strategy=MergeStrategy(
-            name="vote", selection_criteria="most_common_conclusion"
-        ),
+        merge_strategy=MergeStrategy(name="vote", selection_criteria="most_common_conclusion"),
         max_concurrency=3,
     )
 
@@ -394,9 +382,7 @@ def sample_switch_pipeline() -> SwitchPipeline:
         expression="problem_type",
         cases={
             "ethical": MethodStage(method_id=MethodIdentifier.ETHICAL_REASONING),
-            "mathematical": MethodStage(
-                method_id=MethodIdentifier.MATHEMATICAL_REASONING
-            ),
+            "mathematical": MethodStage(method_id=MethodIdentifier.MATHEMATICAL_REASONING),
             "code": MethodStage(method_id=MethodIdentifier.CODE_REASONING),
         },
         default=MethodStage(method_id=MethodIdentifier.CHAIN_OF_THOUGHT),
@@ -545,26 +531,16 @@ def pytest_configure(config: pytest.Config) -> None:
     """
     # Register custom markers
     config.addinivalue_line(
-        "markers",
-        "slow: marks tests as slow (deselect with '-m \"not slow\"')"
+        "markers", "slow: marks tests as slow (deselect with '-m \"not slow\"')"
     )
     config.addinivalue_line(
-        "markers",
-        "integration: marks tests as integration tests requiring external services"
+        "markers", "integration: marks tests as integration tests requiring external services"
     )
-    config.addinivalue_line(
-        "markers",
-        "unit: marks tests as fast unit tests"
-    )
-    config.addinivalue_line(
-        "markers",
-        "e2e: marks tests as end-to-end tests"
-    )
+    config.addinivalue_line("markers", "unit: marks tests as fast unit tests")
+    config.addinivalue_line("markers", "e2e: marks tests as end-to-end tests")
 
 
-def pytest_collection_modifyitems(
-    config: pytest.Config, items: list[pytest.Item]
-) -> None:
+def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item]) -> None:
     """
     Modify test items during collection.
 
@@ -583,6 +559,7 @@ def pytest_collection_modifyitems(
             item.add_marker(pytest.mark.e2e)
         else:
             # Default to unit test if not otherwise marked
-            if not any(marker.name in ["integration", "e2e", "slow"]
-                      for marker in item.iter_markers()):
+            if not any(
+                marker.name in ["integration", "e2e", "slow"] for marker in item.iter_markers()
+            ):
                 item.add_marker(pytest.mark.unit)

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 MULTI_AGENT_VERIFICATION_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.MULTI_AGENT_VERIFICATION,
@@ -68,20 +67,18 @@ class MultiAgentVerification:
 
         # Cross-verification process
         verified_solutions = await self._cross_verify(solutions)
-        
+
         # Select solution with highest verification score
         if verified_solutions:
             best = max(verified_solutions, key=lambda x: x[1])
             return best[0]
-        
+
         return solutions[0]
 
-    async def _cross_verify(
-        self, solutions: list[str]
-    ) -> list[tuple[str, float]]:
+    async def _cross_verify(self, solutions: list[str]) -> list[tuple[str, float]]:
         """Cross-verify solutions among agents."""
         verified = []
-        
+
         for solution in solutions:
             # Simulate cross-verification scores
             votes = []
@@ -90,10 +87,10 @@ class MultiAgentVerification:
                     # Agreement score based on similarity
                     similarity = self._compute_agreement(solution, other)
                     votes.append(similarity)
-            
+
             avg_vote = sum(votes) / len(votes) if votes else 0.5
             verified.append((solution, avg_vote))
-        
+
         return verified
 
     def _compute_agreement(self, solution1: str, solution2: str) -> float:
@@ -101,13 +98,13 @@ class MultiAgentVerification:
         # Simple word overlap for agreement
         words1 = set(solution1.lower().split())
         words2 = set(solution2.lower().split())
-        
+
         if not words1 or not words2:
             return 0.5
-        
+
         overlap = len(words1 & words2)
         total = len(words1 | words2)
-        
+
         return overlap / total if total > 0 else 0.5
 
     async def verify_ensemble(
@@ -120,10 +117,10 @@ class MultiAgentVerification:
             raise RuntimeError("Multi-Agent Verification must be initialized")
 
         verified = await self._cross_verify(solutions)
-        
+
         if not verified:
             return "", 0.0
-        
+
         best = max(verified, key=lambda x: x[1])
         return best
 
@@ -139,7 +136,7 @@ class MultiAgentVerification:
 
         # Need at least 3 for meaningful cross-verification
         min_needed = max(3, MULTI_AGENT_VERIFICATION_METADATA.min_models)
-        return available_models[:max(min_needed, MULTI_AGENT_VERIFICATION_METADATA.max_models)]
+        return available_models[: max(min_needed, MULTI_AGENT_VERIFICATION_METADATA.max_models)]
 
     async def health_check(self) -> bool:
         return self._initialized

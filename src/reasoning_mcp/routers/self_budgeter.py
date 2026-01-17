@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 SELF_BUDGETER_METADATA = RouterMetadata(
     identifier=RouterIdentifier.SELF_BUDGETER,
@@ -49,9 +48,7 @@ class SelfBudgeter:
         self._initialized = True
         self._difficulty_estimate = 0.0
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route to primary method based on difficulty."""
         if not self._initialized:
             raise RuntimeError("SelfBudgeter must be initialized")
@@ -70,15 +67,13 @@ class SelfBudgeter:
         """Estimate problem difficulty from query."""
         # Simple heuristic based on length and keywords
         base = min(1.0, len(query) / 500)
-        
+
         hard_keywords = ["prove", "derive", "optimize", "complex", "multi-step"]
         hard_count = sum(1 for k in hard_keywords if k in query.lower())
-        
+
         return min(1.0, base + (hard_count * 0.15))
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget across methods based on difficulty."""
         if not self._initialized:
             raise RuntimeError("SelfBudgeter must be initialized")

@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 EMA_FUSION_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.EMA_FUSION,
@@ -80,7 +79,7 @@ class EmaFusion:
             weight = self._model_weights.get(model_id, 1.0 / len(solutions))
             quality = self._assess_quality(solution)
             scored.append((solution, weight * quality))
-        
+
         # Select best weighted solution
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[0][0]
@@ -107,12 +106,9 @@ class EmaFusion:
         for model_id, performance in model_performances.items():
             # EMA update
             old_weight = self._model_weights.get(model_id, 0.5)
-            new_weight = (
-                self._ema_alpha * performance +
-                (1 - self._ema_alpha) * old_weight
-            )
+            new_weight = self._ema_alpha * performance + (1 - self._ema_alpha) * old_weight
             self._model_weights[model_id] = new_weight
-            
+
             # Track history
             if model_id not in self._performance_history:
                 self._performance_history[model_id] = []
@@ -142,13 +138,10 @@ class EmaFusion:
             raise RuntimeError("EMAFusion must be initialized")
 
         # Sort by weight and select top models
-        weighted = [
-            (model, self._model_weights.get(model, 0.5))
-            for model in available_models
-        ]
+        weighted = [(model, self._model_weights.get(model, 0.5)) for model in available_models]
         weighted.sort(key=lambda x: x[1], reverse=True)
-        
-        return [m for m, _ in weighted[:EMA_FUSION_METADATA.max_models]]
+
+        return [m for m, _ in weighted[: EMA_FUSION_METADATA.max_models]]
 
     async def health_check(self) -> bool:
         return self._initialized

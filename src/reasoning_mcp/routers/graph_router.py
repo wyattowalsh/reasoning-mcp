@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 GRAPH_ROUTER_METADATA = RouterMetadata(
     identifier=RouterIdentifier.GRAPH_ROUTER,
@@ -66,16 +65,14 @@ class GraphRouter:
             "verify": MethodIdentifier.SELF_CONSISTENCY,
         }
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route using graph-based analysis."""
         if not self._initialized:
             raise RuntimeError("GraphRouter must be initialized")
 
         # Determine optimal path through reasoning graph
         path = self._find_optimal_path(query)
-        
+
         # Return method for first node in path
         if path:
             return self._node_methods.get(path[0], MethodIdentifier.CHAIN_OF_THOUGHT)
@@ -91,23 +88,21 @@ class GraphRouter:
         else:
             return ["start", "analyze", "verify", "end"]
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget across graph nodes."""
         if not self._initialized:
             raise RuntimeError("GraphRouter must be initialized")
 
         path = self._find_optimal_path(query)
-        allocation = {}
-        
+        allocation: dict[str, int] = {}
+
         # Distribute budget across path nodes
         per_node = budget // len(path) if path else budget
         for node in path:
             if node in self._node_methods:
                 method = self._node_methods[node]
                 allocation[method] = allocation.get(method, 0) + per_node
-        
+
         return allocation
 
     async def health_check(self) -> bool:

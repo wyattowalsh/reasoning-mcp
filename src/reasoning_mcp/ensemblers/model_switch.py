@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 MODEL_SWITCH_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.MODEL_SWITCH,
@@ -70,13 +69,13 @@ class ModelSwitch:
 
         # Score all solutions
         scored = [(s, self._score_solution(s)) for s in solutions]
-        
+
         # Check if we should switch (no good solutions)
         best_score = max(s[1] for s in scored)
         if best_score < self._switch_threshold:
             # Would trigger model switch in real scenario
             pass
-        
+
         # Return best solution
         scored.sort(key=lambda x: x[1], reverse=True)
         return scored[0][0]
@@ -105,27 +104,29 @@ class ModelSwitch:
 
         all_solutions = []
         model_scores: dict[str, float] = {}
-        
+
         for model_id, outputs in model_outputs.items():
             samples = outputs[:n_samples]
             scores = [self._score_solution(s) for s in samples]
             model_scores[model_id] = sum(scores) / len(scores) if scores else 0
             all_solutions.extend(samples)
-        
+
         # Switch to best-performing model's outputs
-        best_model = max(model_scores, key=model_scores.get) if model_scores else None
-        
+        best_model = (
+            max(model_scores, key=lambda k: model_scores.get(k, 0.0)) if model_scores else None
+        )
+
         if best_model and best_model in model_outputs:
             candidates = model_outputs[best_model]
         else:
             candidates = all_solutions
-        
+
         # Return best from candidates
         if candidates:
             scored = [(s, self._score_solution(s)) for s in candidates]
             scored.sort(key=lambda x: x[1], reverse=True)
             return scored[0][0]
-        
+
         return ""
 
     async def select_models(
@@ -138,7 +139,7 @@ class ModelSwitch:
         if not self._initialized:
             raise RuntimeError("ModelSwitch must be initialized")
 
-        return available_models[:MODEL_SWITCH_METADATA.max_models]
+        return available_models[: MODEL_SWITCH_METADATA.max_models]
 
     async def health_check(self) -> bool:
         return self._initialized

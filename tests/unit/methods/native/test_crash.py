@@ -2,17 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.crash import (
     CRASH_METADATA,
     CRASHMethod,
 )
-from reasoning_mcp.models import Session, ThoughtNode
+from reasoning_mcp.models import Session
 from reasoning_mcp.models.core import MethodCategory, MethodIdentifier, ThoughtType
-
 
 # Fixtures
 
@@ -252,9 +249,7 @@ class TestBasicExecution:
         assert root.method_id == MethodIdentifier.CRASH
 
     @pytest.mark.asyncio
-    async def test_execute_without_initialize(
-        self, active_session: Session
-    ):
+    async def test_execute_without_initialize(self, active_session: Session):
         """Test execute() fails without initialize()."""
         crash = CRASHMethod()
         with pytest.raises(RuntimeError, match="must be initialized"):
@@ -460,18 +455,14 @@ class TestContinueReasoning:
         initial_count = active_session.thought_count
         initial_node_count = graph.node_count
 
-        updated_graph = await crash_method.continue_reasoning(
-            active_session, graph
-        )
+        updated_graph = await crash_method.continue_reasoning(active_session, graph)
 
         # Should have added thoughts
         assert active_session.thought_count > initial_count
         assert updated_graph.node_count > initial_node_count
 
     @pytest.mark.asyncio
-    async def test_continue_reasoning_without_initialize(
-        self, active_session: Session
-    ):
+    async def test_continue_reasoning_without_initialize(self, active_session: Session):
         """Test continue_reasoning() fails without initialize()."""
         crash = CRASHMethod()
         graph = active_session.graph
@@ -527,10 +518,7 @@ class TestContinueReasoning:
         )
 
         # Find the new thought
-        new_thoughts = [
-            n for n in updated_graph.nodes.values()
-            if n.step_number == 2
-        ]
+        new_thoughts = [n for n in updated_graph.nodes.values() if n.step_number == 2]
         assert len(new_thoughts) > 0
         new_thought = new_thoughts[0]
         assert new_thought.metadata.get("feedback") == "Try a different approach"
@@ -551,7 +539,7 @@ class TestStrategySwitching:
         graph = await crash_method.execute(active_session, "Test")
 
         # Force low confidence with negative feedback
-        updated_graph = await crash_method.continue_reasoning(
+        await crash_method.continue_reasoning(
             active_session, graph, feedback="very difficult, unclear, stuck"
         )
 
@@ -590,10 +578,7 @@ class TestStrategySwitching:
         )
 
         # Find the switch thought
-        branch_thoughts = [
-            n for n in updated_graph.nodes.values()
-            if n.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [n for n in updated_graph.nodes.values() if n.type == ThoughtType.BRANCH]
 
         if crash_method._switch_count > 0:
             assert len(branch_thoughts) > 0
@@ -619,9 +604,7 @@ class TestStrategySwitching:
         assert "strategy" in latest.metadata
 
     @pytest.mark.asyncio
-    async def test_max_switches_enforced(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_max_switches_enforced(self, crash_method: CRASHMethod, active_session: Session):
         """Test max_strategy_switches limit is enforced."""
         await crash_method.initialize()
         graph = await crash_method.execute(active_session, "Test")
@@ -643,8 +626,6 @@ class TestStrategySwitching:
         await crash_method.initialize()
         graph = await crash_method.execute(active_session, "Test")
 
-        initial_strategy = crash_method._current_strategy
-
         # Force multiple switches
         for _ in range(3):
             graph = await crash_method.continue_reasoning(
@@ -665,14 +646,12 @@ class TestMultipleStrategies:
 
     def test_all_strategies_have_descriptions(self):
         """Test all strategies have descriptions."""
-        for strategy, description in CRASHMethod.STRATEGIES.items():
+        for _strategy, description in CRASHMethod.STRATEGIES.items():
             assert len(description) > 0
             assert isinstance(description, str)
 
     @pytest.mark.asyncio
-    async def test_direct_strategy(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_direct_strategy(self, crash_method: CRASHMethod, active_session: Session):
         """Test direct strategy execution."""
         await crash_method.initialize()
         graph = await crash_method.execute(
@@ -684,9 +663,7 @@ class TestMultipleStrategies:
         assert "direct" in root.content.lower()
 
     @pytest.mark.asyncio
-    async def test_decompose_strategy(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_decompose_strategy(self, crash_method: CRASHMethod, active_session: Session):
         """Test decompose strategy execution."""
         await crash_method.initialize()
         graph = await crash_method.execute(
@@ -697,9 +674,7 @@ class TestMultipleStrategies:
         assert root.metadata["strategy"] == "decompose"
 
     @pytest.mark.asyncio
-    async def test_analogize_strategy(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_analogize_strategy(self, crash_method: CRASHMethod, active_session: Session):
         """Test analogize strategy execution."""
         await crash_method.initialize()
         graph = await crash_method.execute(
@@ -710,9 +685,7 @@ class TestMultipleStrategies:
         assert root.metadata["strategy"] == "analogize"
 
     @pytest.mark.asyncio
-    async def test_abstract_strategy(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_abstract_strategy(self, crash_method: CRASHMethod, active_session: Session):
         """Test abstract strategy execution."""
         await crash_method.initialize()
         graph = await crash_method.execute(
@@ -723,9 +696,7 @@ class TestMultipleStrategies:
         assert root.metadata["strategy"] == "abstract"
 
     @pytest.mark.asyncio
-    async def test_verify_strategy(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_verify_strategy(self, crash_method: CRASHMethod, active_session: Session):
         """Test verify strategy execution."""
         await crash_method.initialize()
         graph = await crash_method.execute(
@@ -756,10 +727,7 @@ class TestConfidenceGates:
         )
 
         # Find the new thought
-        new_thoughts = [
-            n for n in updated_graph.nodes.values()
-            if n.step_number == 2
-        ]
+        new_thoughts = [n for n in updated_graph.nodes.values() if n.step_number == 2]
         assert len(new_thoughts) > 0
         new_thought = new_thoughts[0]
 
@@ -780,25 +748,18 @@ class TestConfidenceGates:
         )
 
         # Find the new thought
-        new_thoughts = [
-            n for n in updated_graph.nodes.values()
-            if n.step_number == 2
-        ]
+        new_thoughts = [n for n in updated_graph.nodes.values() if n.step_number == 2]
 
         if crash_method._switch_count > 0:
             new_thought = new_thoughts[0]
             assert new_thought.type == ThoughtType.BRANCH
 
     @pytest.mark.asyncio
-    async def test_custom_threshold_respected(
-        self, active_session: Session
-    ):
+    async def test_custom_threshold_respected(self, active_session: Session):
         """Test custom threshold is respected."""
         crash = CRASHMethod(confidence_threshold=0.8)
         await crash.initialize()
-        graph = await crash.execute(
-            active_session, "Test", context={"confidence_threshold": 0.9}
-        )
+        graph = await crash.execute(active_session, "Test", context={"confidence_threshold": 0.9})
 
         root = graph.nodes[graph.root_id]
         assert root.metadata["confidence_threshold"] == 0.9
@@ -843,10 +804,7 @@ class TestFallbackHandling:
             )
 
         # Should have conclusion thought
-        conclusion_thoughts = [
-            n for n in graph.nodes.values()
-            if n.type == ThoughtType.CONCLUSION
-        ]
+        conclusion_thoughts = [n for n in graph.nodes.values() if n.type == ThoughtType.CONCLUSION]
 
         if crash_method._switch_count >= crash_method.max_strategy_switches:
             assert len(conclusion_thoughts) > 0
@@ -868,8 +826,7 @@ class TestFallbackHandling:
 
         # Should have conclusion thought if confidence >= 0.9
         conclusion_thoughts = [
-            n for n in updated_graph.nodes.values()
-            if n.type == ThoughtType.CONCLUSION
+            n for n in updated_graph.nodes.values() if n.type == ThoughtType.CONCLUSION
         ]
 
         # May have conclusion if confidence reached 0.9
@@ -884,9 +841,7 @@ class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
     @pytest.mark.asyncio
-    async def test_empty_input_text(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_empty_input_text(self, crash_method: CRASHMethod, active_session: Session):
         """Test with empty input text."""
         await crash_method.initialize()
         graph = await crash_method.execute(active_session, "")
@@ -895,9 +850,7 @@ class TestEdgeCases:
         assert active_session.thought_count > 0
 
     @pytest.mark.asyncio
-    async def test_very_long_input_text(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_very_long_input_text(self, crash_method: CRASHMethod, active_session: Session):
         """Test with very long input text."""
         long_input = "Complex problem " * 200
         await crash_method.initialize()
@@ -918,18 +871,14 @@ class TestEdgeCases:
         assert graph.root_id is not None
 
     @pytest.mark.asyncio
-    async def test_oscillation_prevention(
-        self, crash_method: CRASHMethod, active_session: Session
-    ):
+    async def test_oscillation_prevention(self, crash_method: CRASHMethod, active_session: Session):
         """Test that strategy oscillation is prevented."""
         await crash_method.initialize()
         graph = await crash_method.execute(active_session, "Test")
 
         # Force multiple switches
         for _ in range(4):
-            graph = await crash_method.continue_reasoning(
-                active_session, graph, feedback="unclear"
-            )
+            graph = await crash_method.continue_reasoning(active_session, graph, feedback="unclear")
 
         # Check that we don't immediately revisit strategies
         history = crash_method._strategy_history
@@ -937,7 +886,7 @@ class TestEdgeCases:
             # Last strategy should not be same as second-to-last
             # (unless we've exhausted all options)
             if len(set(CRASHMethod.STRATEGIES.keys())) > 2:
-                recent_strategies = history[-2:]
+                history[-2:]
                 # Allow same strategy only if we've cycled through all
                 assert True  # Oscillation prevention is best-effort
 
@@ -964,9 +913,7 @@ class TestEdgeCases:
         # Continue a few times
         for i in range(3):
             feedback = "good progress" if i % 2 == 0 else "struggling"
-            graph = await crash_method.continue_reasoning(
-                active_session, graph, feedback=feedback
-            )
+            graph = await crash_method.continue_reasoning(active_session, graph, feedback=feedback)
 
         recovery_rate = crash_method._calculate_recovery_rate()
         assert 0.0 <= recovery_rate <= 1.0
@@ -986,10 +933,7 @@ class TestEdgeCases:
             )
 
         # Find conclusion if it exists
-        conclusion_thoughts = [
-            n for n in graph.nodes.values()
-            if n.type == ThoughtType.CONCLUSION
-        ]
+        conclusion_thoughts = [n for n in graph.nodes.values() if n.type == ThoughtType.CONCLUSION]
 
         if len(conclusion_thoughts) > 0:
             conclusion = conclusion_thoughts[0]
@@ -1030,9 +974,7 @@ class TestEdgeCases:
 
         # Force multiple switch attempts
         for _ in range(3):
-            graph = await crash.continue_reasoning(
-                session, graph, feedback="struggling badly"
-            )
+            graph = await crash.continue_reasoning(session, graph, feedback="struggling badly")
 
         # Should not exceed max of 1 switch
         assert crash._switch_count <= 1

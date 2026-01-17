@@ -18,10 +18,11 @@ Example:
 from __future__ import annotations
 
 import logging
-from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from reasoning_mcp.models.thought import ThoughtGraph
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,7 @@ try:
     NETWORKX_AVAILABLE = True
 except ImportError:
     NETWORKX_AVAILABLE = False
-    nx = None  # type: ignore
+    nx = None
 
 
 class ThoughtGraphNetworkX:
@@ -164,7 +165,7 @@ class ThoughtGraphNetworkX:
             ...     cycles = adapter.find_cycles()
             ...     print(f"Warning: Found {len(cycles)} cycles")
         """
-        return nx.is_directed_acyclic_graph(self.nx_graph)
+        return cast("bool", nx.is_directed_acyclic_graph(self.nx_graph))
 
     def find_cycles(self) -> list[list[str]]:
         """Find all cycles in the graph.
@@ -265,7 +266,7 @@ class ThoughtGraphNetworkX:
             Shortest path as list of node IDs, or None if no path exists
         """
         try:
-            return nx.shortest_path(self.nx_graph, source, target)
+            return cast("list[str]", nx.shortest_path(self.nx_graph, source, target))
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
 
@@ -280,7 +281,7 @@ class ThoughtGraphNetworkX:
             Path length, or None if no path exists
         """
         try:
-            return nx.shortest_path_length(self.nx_graph, source, target)
+            return cast("int", nx.shortest_path_length(self.nx_graph, source, target))
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return None
 
@@ -383,7 +384,7 @@ class ThoughtGraphNetworkX:
             Diameter, or None if graph is not connected
         """
         try:
-            return nx.diameter(self.nx_graph.to_undirected())
+            return cast("int", nx.diameter(self.nx_graph.to_undirected()))
         except nx.NetworkXError:
             return None
 
@@ -437,22 +438,19 @@ class ThoughtGraphNetworkX:
             if not sinks:
                 return []
             # Pick sink with highest confidence
-            sink_confidences = [
-                (s, self.nx_graph.nodes[s].get("confidence", 0))
-                for s in sinks
-            ]
+            sink_confidences = [(s, self.nx_graph.nodes[s].get("confidence", 0)) for s in sinks]
             target = max(sink_confidences, key=lambda x: x[1])[0]
 
         try:
             # Use Dijkstra with inverted weights (to maximize confidence)
             # First, create a copy with inverted weights
             G_inv = self.nx_graph.copy()
-            for u, v, data in G_inv.edges(data=True):
+            for u, v, _data in G_inv.edges(data=True):
                 target_conf = G_inv.nodes[v].get("confidence", 0)
                 # Invert: high confidence = low weight
                 G_inv[u][v]["weight"] = 1.0 - target_conf
 
-            return nx.dijkstra_path(G_inv, source, target, weight="weight")
+            return cast("list[str]", nx.dijkstra_path(G_inv, source, target, weight="weight"))
         except (nx.NetworkXNoPath, nx.NodeNotFound):
             return []
 
@@ -487,7 +485,7 @@ class ThoughtGraphNetworkX:
         Returns:
             Dictionary with 'nodes' and 'links' keys suitable for D3.js
         """
-        return nx.node_link_data(self.nx_graph)
+        return cast("dict[str, Any]", nx.node_link_data(self.nx_graph))
 
 
 def is_networkx_available() -> bool:

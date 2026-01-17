@@ -13,10 +13,10 @@ from datetime import datetime
 
 import pytest
 
-from reasoning_mcp.models.core import MethodIdentifier, PipelineStageType
+from reasoning_mcp.models.core import MethodIdentifier
 from reasoning_mcp.models.pipeline import (
-    ConditionalPipeline,
     Condition,
+    ConditionalPipeline,
     LoopPipeline,
     MergeStrategy,
     MethodStage,
@@ -26,7 +26,6 @@ from reasoning_mcp.models.pipeline import (
 )
 from reasoning_mcp.models.tools import ComposeOutput
 from reasoning_mcp.tools.compose import compose
-
 
 # ============================================================================
 # Fixtures
@@ -539,9 +538,7 @@ class TestComposeIdempotency:
     """Test idempotency and consistency of compose() function."""
 
     @pytest.mark.asyncio
-    async def test_compose_multiple_calls_same_pipeline(
-        self, simple_method_stage: MethodStage
-    ):
+    async def test_compose_multiple_calls_same_pipeline(self, simple_method_stage: MethodStage):
         """Test multiple calls with same pipeline create different sessions."""
         output1 = await compose(
             pipeline=simple_method_stage,

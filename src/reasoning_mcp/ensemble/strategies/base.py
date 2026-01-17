@@ -73,9 +73,7 @@ class VotingStrategyProtocol(Protocol):
         >>> assert confidence == 2/3  # 2 out of 3 members agreed
     """
 
-    def aggregate(
-        self, results: list[MemberResult]
-    ) -> tuple[str, float, dict[str, Any]]:
+    def aggregate(self, results: list[MemberResult]) -> tuple[str, float, dict[str, Any]]:
         """Aggregate results from multiple ensemble members.
 
         This method combines the results from all ensemble members into a single

@@ -20,8 +20,6 @@ Test coverage: 90%+ with 15+ test cases
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.step_back import (
@@ -31,12 +29,10 @@ from reasoning_mcp.methods.native.step_back import (
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
 from reasoning_mcp.models.thought import ThoughtNode
-
 
 # ============================================================================
 # Fixtures
@@ -198,25 +194,19 @@ class TestStepBackInitialization:
         assert initialized_method._identified_principles == []
 
     @pytest.mark.asyncio
-    async def test_health_check_before_initialization(
-        self, step_back_method: StepBack
-    ):
+    async def test_health_check_before_initialization(self, step_back_method: StepBack):
         """Test health check returns False before initialization."""
         result = await step_back_method.health_check()
         assert result is False
 
     @pytest.mark.asyncio
-    async def test_health_check_after_initialization(
-        self, initialized_method: StepBack
-    ):
+    async def test_health_check_after_initialization(self, initialized_method: StepBack):
         """Test health check returns True after initialization."""
         result = await initialized_method.health_check()
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_health_check_with_invalid_phase(
-        self, initialized_method: StepBack
-    ):
+    async def test_health_check_with_invalid_phase(self, initialized_method: StepBack):
         """Test health check returns False with invalid phase."""
         initialized_method._current_phase = "INVALID_PHASE"
         result = await initialized_method.health_check()
@@ -286,9 +276,7 @@ class TestStepBackExecution:
         assert thought.method_id == MethodIdentifier.STEP_BACK
         assert thought.step_number == 1
         assert thought.depth == 0
-        assert sample_input in thought.content or sample_input in thought.metadata.get(
-            "input", ""
-        )
+        assert sample_input in thought.content or sample_input in thought.metadata.get("input", "")
 
     @pytest.mark.asyncio
     async def test_execute_sets_abstraction_phase(
@@ -1067,7 +1055,7 @@ class TestStepBackEdgeCases:
         )
 
         # Continue for many steps
-        for i in range(15):
+        for _i in range(15):
             thought = await initialized_method.continue_reasoning(
                 session=active_session,
                 previous_thought=thought,
@@ -1147,13 +1135,6 @@ class TestStepBackIntegration:
         assert thought.metadata["phase"] == StepBack.PHASE_ABSTRACTION
 
         # Progress through all phases
-        phases = [
-            StepBack.PHASE_ABSTRACTION,
-            StepBack.PHASE_PRINCIPLES,
-            StepBack.PHASE_FRAMEWORK,
-            StepBack.PHASE_APPLICATION,
-            StepBack.PHASE_REFINEMENT,
-        ]
 
         seen_phases = {thought.metadata["phase"]}
 
@@ -1184,10 +1165,7 @@ class TestStepBackIntegration:
 
         # Metrics should be updated
         assert active_session.metrics.total_thoughts == initial_thoughts + 1
-        assert (
-            active_session.metrics.methods_used[MethodIdentifier.STEP_BACK]
-            == 1
-        )
+        assert active_session.metrics.methods_used[MethodIdentifier.STEP_BACK] == 1
 
         # Continue and check again
         await initialized_method.continue_reasoning(
@@ -1196,10 +1174,7 @@ class TestStepBackIntegration:
         )
 
         assert active_session.metrics.total_thoughts == initial_thoughts + 2
-        assert (
-            active_session.metrics.methods_used[MethodIdentifier.STEP_BACK]
-            == 2
-        )
+        assert active_session.metrics.methods_used[MethodIdentifier.STEP_BACK] == 2
 
     @pytest.mark.asyncio
     async def test_thought_graph_connectivity(
@@ -1261,3 +1236,37 @@ class TestStepBackIntegration:
 
         # Both should be in session
         assert active_session.thought_count >= 2
+
+    @pytest.mark.asyncio
+    async def test_elicitation_enabled_by_default(self):
+        """Test that elicitation is enabled by default."""
+        method = StepBack()
+        assert method.enable_elicitation is True
+
+    @pytest.mark.asyncio
+    async def test_elicitation_can_be_disabled(self):
+        """Test that elicitation can be disabled."""
+        method = StepBack(enable_elicitation=False)
+        assert method.enable_elicitation is False
+
+    @pytest.mark.asyncio
+    async def test_execution_with_disabled_elicitation(
+        self,
+        active_session: Session,
+        sample_input: str,
+    ):
+        """Test that execution works with elicitation disabled."""
+        method = StepBack(enable_elicitation=False)
+        await method.initialize()
+
+        thought = await method.execute(
+            session=active_session,
+            input_text=sample_input,
+        )
+
+        # Should still work normally
+        assert thought is not None
+        assert thought.type == ThoughtType.INITIAL
+        assert thought.method_id == MethodIdentifier.STEP_BACK
+        assert thought.step_number == 1
+        assert sample_input in thought.content

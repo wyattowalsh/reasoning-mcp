@@ -153,9 +153,7 @@ def register_pipeline_prompts(mcp: FastMCP) -> None:
         return "\n".join(prompt_parts)
 
     @mcp.prompt(name="debug_code", description="Systematic code debugging prompt")
-    def debug_code(
-        code: str, error: str | None = None, language: str | None = None
-    ) -> str:
+    def debug_code(code: str, error: str | None = None, language: str | None = None) -> str:
         """Generate a structured prompt for systematic code debugging.
 
         This prompt guides debugging through a proven systematic process:
@@ -262,9 +260,7 @@ def register_pipeline_prompts(mcp: FastMCP) -> None:
         name="ethical_decision",
         description="Multi-framework ethical analysis prompt",
     )
-    def ethical_decision(
-        scenario: str, stakeholders: list[str] | None = None
-    ) -> str:
+    def ethical_decision(scenario: str, stakeholders: list[str] | None = None) -> str:
         """Generate a structured prompt for multi-framework ethical analysis.
 
         This prompt guides ethical decision-making through multiple philosophical

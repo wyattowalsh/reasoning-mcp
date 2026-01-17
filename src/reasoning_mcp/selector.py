@@ -11,10 +11,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from reasoning_mcp.models.core import MethodCategory, MethodIdentifier
-
-from reasoning_mcp.registry import MethodRegistry
-
+    from reasoning_mcp.registry import MethodRegistry
 
 __all__ = [
     "SelectionHint",
@@ -46,6 +43,7 @@ class SelectionConstraint:
         max_tokens_budget: Maximum token budget for the reasoning session
         preferred_methods: Methods to prefer (will be scored higher)
     """
+
     allowed_methods: frozenset[str] | None = None
     excluded_methods: frozenset[str] = field(default_factory=frozenset)
     allowed_categories: frozenset[str] | None = None
@@ -115,6 +113,7 @@ class SelectionHint:
         suggested_min_depth: Suggested minimum reasoning depth
         confidence: Confidence in these hints (0.0-1.0)
     """
+
     problem_type: str
     complexity_estimate: int = 5
     requires_branching: bool = False
@@ -152,6 +151,7 @@ class MethodRecommendation:
         weaknesses: Potential drawbacks for this problem
         alternative_to: If this is an alternative, what method it replaces
     """
+
     identifier: str
     score: float
     confidence: float
@@ -187,6 +187,7 @@ class MethodRecommendation:
 
 # Pattern detection functions
 
+
 def detect_problem_patterns(text: str) -> dict[str, bool]:
     """Detect common problem patterns in text.
 
@@ -194,14 +195,18 @@ def detect_problem_patterns(text: str) -> dict[str, bool]:
     """
     text_lower = text.lower()
     return {
-        "mathematical": bool(re.search(r'\b(calculate|compute|solve|equation|formula|prove)\b', text_lower)),
-        "code": bool(re.search(r'\b(code|function|class|bug|error|debug|implement)\b', text_lower)),
-        "ethical": bool(re.search(r'\b(ethical|moral|right|wrong|should|ought)\b', text_lower)),
-        "creative": bool(re.search(r'\b(create|design|invent|imagine|novel|innovative)\b', text_lower)),
-        "analytical": bool(re.search(r'\b(analyze|compare|evaluate|assess|examine)\b', text_lower)),
-        "causal": bool(re.search(r'\b(cause|effect|why|because|reason|result)\b', text_lower)),
-        "decision": bool(re.search(r'\b(decide|choice|option|alternative|tradeoff)\b', text_lower)),
-        "multi_step": bool(re.search(r'\b(step|first|then|next|finally|process)\b', text_lower)),
+        "mathematical": bool(
+            re.search(r"\b(calculate|compute|solve|equation|formula|prove)\b", text_lower)
+        ),
+        "code": bool(re.search(r"\b(code|function|class|bug|error|debug|implement)\b", text_lower)),
+        "ethical": bool(re.search(r"\b(ethical|moral|right|wrong|should|ought)\b", text_lower)),
+        "creative": bool(
+            re.search(r"\b(create|design|invent|imagine|novel|innovative)\b", text_lower)
+        ),
+        "analytical": bool(re.search(r"\b(analyze|compare|evaluate|assess|examine)\b", text_lower)),
+        "causal": bool(re.search(r"\b(cause|effect|why|because|reason|result)\b", text_lower)),
+        "decision": bool(re.search(r"\b(decide|choice|option|alternative|tradeoff)\b", text_lower)),
+        "multi_step": bool(re.search(r"\b(step|first|then|next|finally|process)\b", text_lower)),
     }
 
 
@@ -233,6 +238,7 @@ class SelectionRule:
         score_boost: Score boost when pattern matches (0.0-1.0)
         reason: Explanation for this rule
     """
+
     pattern: str
     method: str
     score_boost: float
@@ -244,7 +250,9 @@ class SelectionRule:
 
 
 SELECTION_RULES: list[SelectionRule] = [
-    SelectionRule("mathematical", "mathematical_reasoning", 0.3, "Math problems benefit from formal reasoning"),
+    SelectionRule(
+        "mathematical", "mathematical_reasoning", 0.3, "Math problems benefit from formal reasoning"
+    ),
     SelectionRule("mathematical", "chain_of_thought", 0.2, "Step-by-step helps with calculations"),
     SelectionRule("code", "code_reasoning", 0.4, "Code-specific reasoning for programming tasks"),
     SelectionRule("code", "react", 0.2, "ReAct can execute and verify code"),
@@ -252,8 +260,12 @@ SELECTION_RULES: list[SelectionRule] = [
     SelectionRule("ethical", "dialectic", 0.2, "Consider multiple perspectives"),
     SelectionRule("creative", "lateral_thinking", 0.3, "Non-linear creative reasoning"),
     SelectionRule("creative", "tree_of_thoughts", 0.2, "Explore multiple creative paths"),
-    SelectionRule("analytical", "chain_of_thought", 0.2, "Systematic analysis benefits from step-by-step"),
-    SelectionRule("analytical", "self_consistency", 0.2, "Multiple perspectives increase reliability"),
+    SelectionRule(
+        "analytical", "chain_of_thought", 0.2, "Systematic analysis benefits from step-by-step"
+    ),
+    SelectionRule(
+        "analytical", "self_consistency", 0.2, "Multiple perspectives increase reliability"
+    ),
     SelectionRule("causal", "causal_reasoning", 0.4, "Direct causal analysis capability"),
     SelectionRule("decision", "tree_of_thoughts", 0.3, "Explore decision branches"),
     SelectionRule("decision", "mcts", 0.2, "Monte Carlo search for decision optimization"),
@@ -376,19 +388,21 @@ class MethodSelector:
             if score < 0.15:  # Filter low scores
                 continue
 
-            metadata = self._registry.get_metadata(method_id)
-            if not metadata:
+            method_metadata = self._registry.get_metadata(method_id)
+            if not method_metadata:
                 continue
 
-            recommendations.append(MethodRecommendation(
-                identifier=method_id,
-                score=min(1.0, score),
-                confidence=hints.confidence,
-                reasoning="; ".join(reasons[method_id]) or "General-purpose method",
-                matched_tags=hints.domain_tags & metadata.tags,
-                strengths=tuple(metadata.best_for[:3]),
-                weaknesses=tuple(metadata.not_recommended_for[:2]),
-            ))
+            recommendations.append(
+                MethodRecommendation(
+                    identifier=method_id,
+                    score=min(1.0, score),
+                    confidence=hints.confidence,
+                    reasoning="; ".join(reasons[method_id]) or "General-purpose method",
+                    matched_tags=hints.domain_tags & method_metadata.tags,
+                    strengths=tuple(method_metadata.best_for[:3]),
+                    weaknesses=tuple(method_metadata.not_recommended_for[:2]),
+                )
+            )
 
             if len(recommendations) >= max_recommendations:
                 break

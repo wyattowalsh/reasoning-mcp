@@ -165,7 +165,10 @@ class TestEthicalReasoningExecution:
     async def test_execute_with_context(self, ethical_method, session):
         """Test execute accepts and processes context parameter."""
         scenario = "Should we prioritize profit or environmental protection?"
-        context: dict[str, Any] = {"industry": "manufacturing", "stakeholders": ["workers", "community"]}
+        context: dict[str, Any] = {
+            "industry": "manufacturing",
+            "stakeholders": ["workers", "community"],
+        }
         result = await ethical_method.execute(session, scenario, context=context)
         assert result is not None
         assert result.type == ThoughtType.CONCLUSION
@@ -203,8 +206,11 @@ class TestFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Find the consequentialist thought
-        thoughts = [t for t in session.graph.nodes.values()
-                   if t.metadata.get("framework") == "consequentialist"]
+        thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("framework") == "consequentialist"
+        ]
         assert len(thoughts) == 1
         assert "Consequentialist" in thoughts[0].content
 
@@ -215,8 +221,11 @@ class TestFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Find the deontological thought
-        thoughts = [t for t in session.graph.nodes.values()
-                   if t.metadata.get("framework") == "deontological"]
+        thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("framework") == "deontological"
+        ]
         assert len(thoughts) == 1
         assert "Deontological" in thoughts[0].content
 
@@ -227,8 +236,11 @@ class TestFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Find the virtue ethics thought
-        thoughts = [t for t in session.graph.nodes.values()
-                   if t.metadata.get("framework") == "virtue_ethics"]
+        thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("framework") == "virtue_ethics"
+        ]
         assert len(thoughts) == 1
         assert "Virtue Ethics" in thoughts[0].content
 
@@ -239,8 +251,9 @@ class TestFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Find the care ethics thought
-        thoughts = [t for t in session.graph.nodes.values()
-                   if t.metadata.get("framework") == "care_ethics"]
+        thoughts = [
+            t for t in session.graph.nodes.values() if t.metadata.get("framework") == "care_ethics"
+        ]
         assert len(thoughts) == 1
         assert "Care Ethics" in thoughts[0].content
 
@@ -255,8 +268,11 @@ class TestMultiFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Check all 4 frameworks are present
-        frameworks = {t.metadata.get("framework") for t in session.graph.nodes.values()
-                     if t.metadata.get("phase") == "framework_analysis"}
+        frameworks = {
+            t.metadata.get("framework")
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "framework_analysis"
+        }
         assert frameworks == {"consequentialist", "deontological", "virtue_ethics", "care_ethics"}
 
     @pytest.mark.asyncio
@@ -266,8 +282,11 @@ class TestMultiFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # All framework thoughts should be branches
-        framework_thoughts = [t for t in session.graph.nodes.values()
-                             if t.metadata.get("phase") == "framework_analysis"]
+        framework_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "framework_analysis"
+        ]
         assert len(framework_thoughts) == 4
         for thought in framework_thoughts:
             assert thought.type == ThoughtType.BRANCH
@@ -280,14 +299,20 @@ class TestMultiFrameworkAnalysis:
         await ethical_method.execute(session, scenario)
 
         # Get stakeholder thought
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         assert len(stakeholder_thoughts) == 1
         stakeholder_id = stakeholder_thoughts[0].id
 
         # All framework thoughts should have same parent
-        framework_thoughts = [t for t in session.graph.nodes.values()
-                             if t.metadata.get("phase") == "framework_analysis"]
+        framework_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "framework_analysis"
+        ]
         assert len(framework_thoughts) == 4
         for thought in framework_thoughts:
             assert thought.parent_id == stakeholder_id
@@ -298,8 +323,11 @@ class TestMultiFrameworkAnalysis:
         scenario = "Is it ethical to use drones in warfare?"
         await ethical_method.execute(session, scenario)
 
-        framework_thoughts = [t for t in session.graph.nodes.values()
-                             if t.metadata.get("phase") == "framework_analysis"]
+        framework_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "framework_analysis"
+        ]
         confidences = {t.confidence for t in framework_thoughts}
         # All frameworks should have same confidence (0.75)
         assert confidences == {0.75}
@@ -314,8 +342,11 @@ class TestStakeholderIdentification:
         scenario = "Should employees be required to work overtime?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         assert len(stakeholder_thoughts) == 1
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         assert "Employees" in stakeholders
@@ -326,8 +357,11 @@ class TestStakeholderIdentification:
         scenario = "Should we collect customer data for targeted advertising?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         assert "Customers/Clients" in stakeholders
 
@@ -337,8 +371,11 @@ class TestStakeholderIdentification:
         scenario = "Should the government increase taxes for public services?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         assert "Public/Community" in stakeholders or "Regulators/Government" in stakeholders
 
@@ -348,8 +385,11 @@ class TestStakeholderIdentification:
         scenario = "Should the company invest in renewable energy?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         assert "Organization/Company" in stakeholders
 
@@ -359,8 +399,11 @@ class TestStakeholderIdentification:
         scenario = "Should patients have access to experimental treatments?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         assert "Patients/Healthcare Recipients" in stakeholders
 
@@ -370,13 +413,18 @@ class TestStakeholderIdentification:
         scenario = "What is the right thing to do in this situation?"
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         # Should have generic categories
         assert len(stakeholders) > 0
-        assert any(s in ["Directly Affected Individuals", "Decision Makers", "Broader Community"]
-                  for s in stakeholders)
+        assert any(
+            s in ["Directly Affected Individuals", "Decision Makers", "Broader Community"]
+            for s in stakeholders
+        )
 
 
 class TestContinueReasoning:
@@ -389,9 +437,7 @@ class TestContinueReasoning:
         result = await ethical_method.execute(session, scenario)
 
         guidance = "Consider the perspective of remote workers"
-        continuation = await ethical_method.continue_reasoning(
-            session, result, guidance=guidance
-        )
+        continuation = await ethical_method.continue_reasoning(session, result, guidance=guidance)
 
         assert continuation is not None
         assert continuation.type == ThoughtType.CONTINUATION
@@ -418,9 +464,7 @@ class TestContinueReasoning:
         result = await ethical_method.execute(session, scenario)
 
         context: dict[str, Any] = {"new_info": "unemployment concerns"}
-        continuation = await ethical_method.continue_reasoning(
-            session, result, context=context
-        )
+        continuation = await ethical_method.continue_reasoning(session, result, context=context)
 
         assert continuation is not None
 
@@ -493,8 +537,9 @@ class TestRecommendationSynthesis:
         await ethical_method.execute(session, scenario)
 
         # Find synthesis/comparison thought
-        synthesis_thoughts = [t for t in session.graph.nodes.values()
-                             if t.type == ThoughtType.SYNTHESIS]
+        synthesis_thoughts = [
+            t for t in session.graph.nodes.values() if t.type == ThoughtType.SYNTHESIS
+        ]
         assert len(synthesis_thoughts) == 1
         assert "Cross-Framework" in synthesis_thoughts[0].content
 
@@ -526,11 +571,16 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_multiple_stakeholder_scenario(self, ethical_method, session):
         """Test scenario with many stakeholders."""
-        scenario = "Should the government mandate vaccines for employees, customers, and the public?"
+        scenario = (
+            "Should the government mandate vaccines for employees, customers, and the public?"
+        )
         await ethical_method.execute(session, scenario)
 
-        stakeholder_thoughts = [t for t in session.graph.nodes.values()
-                               if t.metadata.get("phase") == "stakeholder_analysis"]
+        stakeholder_thoughts = [
+            t
+            for t in session.graph.nodes.values()
+            if t.metadata.get("phase") == "stakeholder_analysis"
+        ]
         stakeholders = stakeholder_thoughts[0].metadata.get("stakeholders", [])
         # Should identify multiple stakeholder groups
         assert len(stakeholders) >= 3
@@ -548,12 +598,14 @@ class TestEdgeCases:
     @pytest.mark.asyncio
     async def test_very_long_scenario(self, ethical_method, session):
         """Test handling of very long scenario text."""
-        scenario = " ".join([
-            "Should we implement a policy that balances economic growth",
-            "with environmental protection, considering the needs of current",
-            "and future generations, while respecting individual freedoms",
-            "and promoting social justice across all demographic groups?"
-        ])
+        scenario = " ".join(
+            [
+                "Should we implement a policy that balances economic growth",
+                "with environmental protection, considering the needs of current",
+                "and future generations, while respecting individual freedoms",
+                "and promoting social justice across all demographic groups?",
+            ]
+        )
         result = await ethical_method.execute(session, scenario)
 
         assert result is not None

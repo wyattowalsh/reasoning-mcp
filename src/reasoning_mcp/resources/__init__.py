@@ -32,13 +32,13 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from mcp.server.fastmcp import FastMCP
+    from fastmcp import FastMCP
 
 # Import resource registration functions from submodules
-from reasoning_mcp.resources.session import register_session_resources
 from reasoning_mcp.resources.method import register_method_resources
-from reasoning_mcp.resources.trace import register_trace_resources
+from reasoning_mcp.resources.session import register_session_resources
 from reasoning_mcp.resources.template import register_template_resources
+from reasoning_mcp.resources.trace import register_trace_resources
 
 
 def register_all_resources(mcp: FastMCP) -> None:

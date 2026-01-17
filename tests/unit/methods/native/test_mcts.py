@@ -13,12 +13,11 @@ This test suite provides extensive coverage for the MCTS implementation, includi
 from __future__ import annotations
 
 import math
-from typing import Any
 from uuid import uuid4
 
 import pytest
 
-from reasoning_mcp.methods.native.mcts import MCTS, MCTSNode, MCTS_METADATA
+from reasoning_mcp.methods.native.mcts import MCTS, MCTS_METADATA, MCTSNode
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import MethodIdentifier, ThoughtType
 
@@ -129,7 +128,7 @@ class TestMCTSNode:
         )
         node = MCTSNode(thought)
 
-        assert node.ucb1_score() == float('inf')
+        assert node.ucb1_score() == float("inf")
 
     def test_ucb1_score_no_parent(self):
         """Test UCB1 score for root node (no parent)."""
@@ -529,9 +528,7 @@ class TestMCTSExecution:
         assert len(observation_thoughts) > 0
 
         # Verify progress metadata
-        progress_thoughts = [
-            t for t in observation_thoughts if t.metadata.get("is_progress")
-        ]
+        progress_thoughts = [t for t in observation_thoughts if t.metadata.get("is_progress")]
         assert len(progress_thoughts) > 0
 
     @pytest.mark.asyncio
@@ -594,6 +591,7 @@ class TestMCTSPhases:
     async def test_select_phase(self):
         """Test selection phase chooses appropriate node."""
         mcts = MCTS()
+        session = Session().start()
 
         # Create a simple tree
         root_thought = ThoughtNode(
@@ -605,13 +603,14 @@ class TestMCTSPhases:
         root_node = MCTSNode(root_thought, untried_actions=["action1"])
 
         # Select should return root since it's not fully expanded
-        selected = await mcts._select(root_node, exploration_constant=1.414)
+        selected = await mcts._select(root_node, exploration_constant=1.414, session=session)
         assert selected == root_node
 
     @pytest.mark.asyncio
     async def test_select_phase_fully_expanded(self):
         """Test selection phase with fully expanded node."""
         mcts = MCTS()
+        session = Session().start()
 
         root_thought = ThoughtNode(
             id=str(uuid4()),
@@ -634,7 +633,7 @@ class TestMCTSPhases:
         root_node.children = [child_node]
 
         # Should select child since root is fully expanded
-        selected = await mcts._select(root_node, exploration_constant=1.414)
+        selected = await mcts._select(root_node, exploration_constant=1.414, session=session)
         assert selected == child_node
 
     @pytest.mark.asyncio
@@ -688,6 +687,7 @@ class TestMCTSPhases:
     async def test_simulate_phase(self):
         """Test simulation phase returns value in valid range."""
         mcts = MCTS(simulation_depth=5)
+        session = Session().start()
 
         thought = ThoughtNode(
             id=str(uuid4()),
@@ -698,7 +698,9 @@ class TestMCTSPhases:
         )
         node = MCTSNode(thought)
 
-        value = await mcts._simulate(node, "Test input", simulation_depth=5, max_depth=10)
+        value = await mcts._simulate(
+            node, "Test input", simulation_depth=5, max_depth=10, session=session, iteration=1
+        )
 
         # Value should be in [-1, 1] range
         assert -1.0 <= value <= 1.0
@@ -707,6 +709,7 @@ class TestMCTSPhases:
     async def test_simulate_phase_respects_max_depth(self):
         """Test simulation phase stops at max depth."""
         mcts = MCTS()
+        session = Session().start()
 
         thought = ThoughtNode(
             id=str(uuid4()),
@@ -718,7 +721,9 @@ class TestMCTSPhases:
         node = MCTSNode(thought)
 
         # Should still return a value even if at max depth
-        value = await mcts._simulate(node, "Test input", simulation_depth=3, max_depth=5)
+        value = await mcts._simulate(
+            node, "Test input", simulation_depth=3, max_depth=5, session=session, iteration=1
+        )
         assert -1.0 <= value <= 1.0
 
     @pytest.mark.asyncio
@@ -792,27 +797,27 @@ class TestMCTSPhases:
 class TestMCTSHelperMethods:
     """Tests for MCTS helper methods."""
 
-    def test_generate_action_set(self):
+    async def test_generate_action_set(self):
         """Test action set generation."""
         mcts = MCTS()
 
-        actions = mcts._generate_action_set("Test input", count=5)
+        actions = await mcts._generate_action_set("Test input", count=5)
 
         assert len(actions) == 5
         assert all(isinstance(action, str) for action in actions)
         assert all(len(action) > 0 for action in actions)
 
-    def test_generate_action_set_different_counts(self):
+    async def test_generate_action_set_different_counts(self):
         """Test action set generation with different counts."""
         mcts = MCTS()
 
-        actions1 = mcts._generate_action_set("Test", count=1)
+        actions1 = await mcts._generate_action_set("Test", count=1)
         assert len(actions1) == 1
 
-        actions3 = mcts._generate_action_set("Test", count=3)
+        actions3 = await mcts._generate_action_set("Test", count=3)
         assert len(actions3) == 3
 
-        actions10 = mcts._generate_action_set("Test", count=10)
+        actions10 = await mcts._generate_action_set("Test", count=10)
         assert len(actions10) == 10
 
     def test_extract_path_single_node(self):
@@ -907,9 +912,7 @@ class TestMCTSContinueReasoning:
         session.add_thought(previous_thought)
 
         guidance = "Focus on strategic aspects"
-        result = await mcts.continue_reasoning(
-            session, previous_thought, guidance=guidance
-        )
+        result = await mcts.continue_reasoning(session, previous_thought, guidance=guidance)
 
         assert result.metadata.get("guidance") == guidance
         assert guidance in result.content
@@ -930,9 +933,7 @@ class TestMCTSContinueReasoning:
         session.add_thought(previous_thought)
 
         context = {"num_iterations": 50}
-        result = await mcts.continue_reasoning(
-            session, previous_thought, context=context
-        )
+        result = await mcts.continue_reasoning(session, previous_thought, context=context)
 
         assert result.metadata.get("additional_iterations") == 50
 

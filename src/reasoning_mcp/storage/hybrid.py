@@ -8,18 +8,19 @@ to disk for recovery across server restarts.
 from __future__ import annotations
 
 import asyncio
-import logging
-from datetime import datetime, timedelta, timezone
-from typing import TYPE_CHECKING
+from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING, Any
 
-from reasoning_mcp.models.core import SessionStatus
+import structlog
+
 from reasoning_mcp.sessions import SessionManager
-from reasoning_mcp.storage.base import StorageBackend
 
 if TYPE_CHECKING:
+    from reasoning_mcp.models.core import SessionStatus
     from reasoning_mcp.models.session import Session, SessionConfig
+    from reasoning_mcp.storage.base import StorageBackend
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class HybridSessionManager:
@@ -97,7 +98,7 @@ class HybridSessionManager:
         self._dirty_lock = asyncio.Lock()  # Lock for dirty session tracking
 
         # Auto-persist task
-        self._persist_task: asyncio.Task | None = None
+        self._persist_task: asyncio.Task[None] | None = None
         self._shutdown = False
 
     async def initialize(self) -> None:
@@ -112,9 +113,7 @@ class HybridSessionManager:
         # Start auto-persist task if storage is available
         if self._storage and self._auto_persist_interval > 0:
             self._persist_task = asyncio.create_task(self._auto_persist_loop())
-            logger.info(
-                f"Auto-persist task started (interval={self._auto_persist_interval}s)"
-            )
+            logger.info(f"Auto-persist task started (interval={self._auto_persist_interval}s)")
 
     async def _auto_persist_loop(self) -> None:
         """Background task to periodically persist dirty sessions."""
@@ -168,8 +167,9 @@ class HybridSessionManager:
                 try:
                     # Temporarily increase limit to add this session
                     self._memory._sessions[session_id] = session
-                except Exception:
-                    pass  # Memory full, but return the session anyway
+                except (MemoryError, KeyError) as e:
+                    # Memory full or invalid key, but return the session anyway
+                    logger.debug("cache_add_failed", session_id=session_id, error=str(e))
                 return session
 
         return None
@@ -185,9 +185,7 @@ class HybridSessionManager:
         if size > self._lazy_load_threshold:
             # Load session without full graph (lazy load)
             # For now, load full session - lazy loading can be optimized later
-            logger.debug(
-                f"Loading large session {session_id} ({size / 1024:.1f}KB)"
-            )
+            logger.debug(f"Loading large session {session_id} ({size / 1024:.1f}KB)")
 
         return await self._storage.load_session(session_id)
 
@@ -316,7 +314,7 @@ class HybridSessionManager:
         if not self._storage:
             return 0
 
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=max_age_hours)
+        cutoff = datetime.now(UTC) - timedelta(hours=max_age_hours)
         recovered = 0
 
         session_ids = await self._storage.list_session_ids()
@@ -335,12 +333,9 @@ class HybridSessionManager:
                     created_at = datetime.fromisoformat(created_at_str)
                     # Normalize to UTC for comparison
                     if created_at.tzinfo is None:
-                        created_at = created_at.replace(tzinfo=timezone.utc)
+                        created_at = created_at.replace(tzinfo=UTC)
                     if created_at < cutoff:
-                        logger.debug(
-                            f"Skipping old session {session_id} "
-                            f"(created {created_at})"
-                        )
+                        logger.debug(f"Skipping old session {session_id} (created {created_at})")
                         continue
 
                 # Check if already in memory
@@ -359,9 +354,7 @@ class HybridSessionManager:
                         recovered += 1
                         logger.debug(f"Recovered session {session_id}")
                     else:
-                        logger.warning(
-                            f"Memory limit reached, cannot recover {session_id}"
-                        )
+                        logger.warning(f"Memory limit reached, cannot recover {session_id}")
                         break
 
             except Exception as e:
@@ -480,6 +473,6 @@ class HybridSessionManager:
 
     # Expose underlying memory manager for compatibility
     @property
-    def _sessions(self) -> dict:
+    def _sessions(self) -> dict[str, Any]:
         """Access internal sessions dict (for compatibility)."""
         return self._memory._sessions

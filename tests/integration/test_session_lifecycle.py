@@ -14,12 +14,11 @@ This module tests the complete lifecycle of reasoning sessions, including:
 import asyncio
 import json
 from datetime import datetime, timedelta
-from typing import Any
 
 import pytest
 
 from reasoning_mcp.models.core import MethodIdentifier, SessionStatus, ThoughtType
-from reasoning_mcp.models.session import Session, SessionConfig, SessionMetrics
+from reasoning_mcp.models.session import Session, SessionConfig
 from reasoning_mcp.models.thought import ThoughtNode
 from reasoning_mcp.sessions import SessionManager
 
@@ -574,7 +573,6 @@ class TestSessionMetricsTracking:
     async def test_timing_metrics(self):
         """Test session timing metrics."""
         session = Session()
-        created_time = session.created_at
 
         # Not started yet
         assert session.duration is None
@@ -900,7 +898,7 @@ class TestSessionExport:
             label = node.content[:20] + "..." if len(node.content) > 20 else node.content
             lines.append(f'    {node_id}["{label}"]')
 
-        for edge_id, edge in session.graph.edges.items():
+        for _edge_id, edge in session.graph.edges.items():
             # Add edge
             lines.append(f"    {edge.source_id} --> {edge.target_id}")
 
@@ -914,7 +912,7 @@ class TestSessionExport:
             label = node.content[:20] + "..." if len(node.content) > 20 else node.content
             lines.append(f'    {node_id} [label="{label}"];')
 
-        for edge_id, edge in session.graph.edges.items():
+        for _edge_id, edge in session.graph.edges.items():
             lines.append(f"    {edge.source_id} -> {edge.target_id};")
 
         lines.append("}")
@@ -1025,7 +1023,7 @@ class TestSessionConcurrency:
             return await manager.count()
 
         # Create some initial sessions
-        initial = [await manager.create() for _ in range(5)]
+        [await manager.create() for _ in range(5)]
 
         # Run mixed operations concurrently
         tasks = (
@@ -1034,7 +1032,7 @@ class TestSessionConcurrency:
             + [count_op() for _ in range(5)]
         )
 
-        results = await asyncio.gather(*tasks)
+        await asyncio.gather(*tasks)
 
         # Verify counts make sense
         final_count = await manager.count()

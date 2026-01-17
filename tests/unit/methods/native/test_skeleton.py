@@ -20,8 +20,6 @@ Test coverage includes:
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.skeleton import (
@@ -41,10 +39,7 @@ class TestSkeletonOfThoughtMetadata:
 
     def test_metadata_identifier(self):
         """Test that metadata has correct identifier."""
-        assert (
-            SKELETON_OF_THOUGHT_METADATA.identifier
-            == MethodIdentifier.SKELETON_OF_THOUGHT
-        )
+        assert SKELETON_OF_THOUGHT_METADATA.identifier == MethodIdentifier.SKELETON_OF_THOUGHT
 
     def test_metadata_name(self):
         """Test that metadata has correct name."""
@@ -214,8 +209,7 @@ class TestSkeletonOfThoughtExecution:
         session = Session().start()
 
         thought = await method.execute(
-            session=session,
-            input_text="Explain machine learning concepts"
+            session=session, input_text="Explain machine learning concepts"
         )
 
         assert thought.type == ThoughtType.INITIAL
@@ -229,8 +223,7 @@ class TestSkeletonOfThoughtExecution:
         session = Session().start()
 
         thought = await method.execute(
-            session=session,
-            input_text="Explain object-oriented programming"
+            session=session, input_text="Explain object-oriented programming"
         )
 
         assert "Skeleton of Thought" in thought.content
@@ -244,10 +237,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        thought = await method.execute(session=session, input_text="Test input")
 
         assert thought.step_number == 1
 
@@ -258,10 +248,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        thought = await method.execute(session=session, input_text="Test input")
 
         assert thought.depth == 0
 
@@ -272,10 +259,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        thought = await method.execute(session=session, input_text="Test input")
 
         assert thought.confidence == 0.8
 
@@ -286,10 +270,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        thought = await method.execute(session=session, input_text="Test input")
 
         assert "input" in thought.metadata
         assert "phase" in thought.metadata
@@ -305,11 +286,7 @@ class TestSkeletonOfThoughtExecution:
         session = Session().start()
 
         context = {"domain": "computer science", "level": "beginner"}
-        thought = await method.execute(
-            session=session,
-            input_text="Test input",
-            context=context
-        )
+        thought = await method.execute(session=session, input_text="Test input", context=context)
 
         assert thought.metadata["context"] == context
 
@@ -320,10 +297,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        await method.execute(session=session, input_text="Test input")
 
         assert session.thought_count == 1
 
@@ -334,10 +308,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        await method.execute(session=session, input_text="Test input")
 
         assert session.current_method == MethodIdentifier.SKELETON_OF_THOUGHT
 
@@ -348,10 +319,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        await method.execute(session=session, input_text="Test input")
 
         assert method._phase == "expansion"
 
@@ -362,10 +330,7 @@ class TestSkeletonOfThoughtExecution:
         await method.initialize()
         session = Session().start()
 
-        thought = await method.execute(
-            session=session,
-            input_text="Test input"
-        )
+        thought = await method.execute(session=session, input_text="Test input")
 
         # Should have extracted 5 main points (based on implementation)
         assert len(method._skeleton_points) == 5
@@ -386,10 +351,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         thought = await self._create_skeleton_thought(session)
 
         with pytest.raises(RuntimeError, match="must be initialized"):
-            await method.continue_reasoning(
-                session=session,
-                previous_thought=thought
-            )
+            await method.continue_reasoning(session=session, previous_thought=thought)
 
     @pytest.mark.asyncio
     async def test_continue_increments_step_counter(self):
@@ -402,9 +364,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         assert method._step_counter == 1
 
         await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
         assert method._step_counter == 2
 
@@ -418,9 +378,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
         assert expansion.type == ThoughtType.BRANCH
@@ -435,9 +393,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
         assert expansion.parent_id == skeleton.id
@@ -452,9 +408,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
         assert expansion.depth == skeleton.depth + 1
@@ -469,9 +423,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
         assert expansion.branch_id is not None
@@ -487,9 +439,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 2"
+            session=session, previous_thought=skeleton, guidance="Expand point 2"
         )
 
         assert expansion.metadata["phase"] == "expansion"
@@ -507,9 +457,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         skeleton = await method.execute(session=session, input_text="Test")
 
         expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 3"
+            session=session, previous_thought=skeleton, guidance="Expand point 3"
         )
 
         assert expansion.metadata["point_number"] == 3
@@ -523,10 +471,7 @@ class TestSkeletonOfThoughtContinueReasoning:
 
         skeleton = await method.execute(session=session, input_text="Test")
 
-        expansion = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton
-        )
+        expansion = await method.continue_reasoning(session=session, previous_thought=skeleton)
 
         # Should default to point 1
         assert expansion.metadata["point_number"] == 1
@@ -542,16 +487,12 @@ class TestSkeletonOfThoughtContinueReasoning:
         assert len(method._expanded_points) == 0
 
         await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
         assert len(method._expanded_points) == 1
 
         await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 2"
+            session=session, previous_thought=skeleton, guidance="Expand point 2"
         )
         assert len(method._expanded_points) == 2
 
@@ -568,9 +509,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         # Expand all 5 points
         for i in range(1, 6):
             await method.continue_reasoning(
-                session=session,
-                previous_thought=skeleton,
-                guidance=f"Expand point {i}"
+                session=session, previous_thought=skeleton, guidance=f"Expand point {i}"
             )
 
         # Should transition to assembly phase
@@ -588,16 +527,11 @@ class TestSkeletonOfThoughtContinueReasoning:
         # Expand all points to trigger assembly phase
         for i in range(1, 6):
             await method.continue_reasoning(
-                session=session,
-                previous_thought=skeleton,
-                guidance=f"Expand point {i}"
+                session=session, previous_thought=skeleton, guidance=f"Expand point {i}"
             )
 
         # Now continue should create synthesis
-        synthesis = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton
-        )
+        synthesis = await method.continue_reasoning(session=session, previous_thought=skeleton)
 
         assert synthesis.type == ThoughtType.SYNTHESIS
 
@@ -613,16 +547,11 @@ class TestSkeletonOfThoughtContinueReasoning:
         # Expand all points
         for i in range(1, 6):
             await method.continue_reasoning(
-                session=session,
-                previous_thought=skeleton,
-                guidance=f"Expand point {i}"
+                session=session, previous_thought=skeleton, guidance=f"Expand point {i}"
             )
 
         # Create synthesis
-        synthesis = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton
-        )
+        synthesis = await method.continue_reasoning(session=session, previous_thought=skeleton)
 
         assert synthesis.metadata["phase"] == "assembly"
         assert synthesis.metadata["points_assembled"] == 5
@@ -638,9 +567,7 @@ class TestSkeletonOfThoughtContinueReasoning:
         assert session.thought_count == 1
 
         await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton,
-            guidance="Expand point 1"
+            session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
         assert session.thought_count == 2
 
@@ -654,7 +581,7 @@ class TestSkeletonOfThoughtContinueReasoning:
             content="Test skeleton",
             step_number=1,
             depth=0,
-            metadata={"phase": "skeleton"}
+            metadata={"phase": "skeleton"},
         )
         session.add_thought(thought)
         return thought
@@ -664,9 +591,9 @@ class TestSkeletonOfThoughtOutlineGeneration:
     """Tests for outline generation and point extraction."""
 
     def test_generate_skeleton_includes_main_points(self):
-        """Test that _generate_skeleton creates numbered main points."""
+        """Test that _generate_skeleton_heuristic creates numbered main points."""
         method = SkeletonOfThought()
-        skeleton = method._generate_skeleton("Test question", None)
+        skeleton = method._generate_skeleton_heuristic("Test question", None)
 
         # Should have 5 main numbered points
         assert "1." in skeleton
@@ -676,17 +603,17 @@ class TestSkeletonOfThoughtOutlineGeneration:
         assert "5." in skeleton
 
     def test_generate_skeleton_includes_input(self):
-        """Test that _generate_skeleton references the input question."""
+        """Test that _generate_skeleton_heuristic references the input question."""
         method = SkeletonOfThought()
         input_text = "Explain quantum computing"
-        skeleton = method._generate_skeleton(input_text, None)
+        skeleton = method._generate_skeleton_heuristic(input_text, None)
 
         assert input_text in skeleton
 
     def test_generate_skeleton_has_structure(self):
-        """Test that _generate_skeleton creates a structured outline."""
+        """Test that _generate_skeleton_heuristic creates a structured outline."""
         method = SkeletonOfThought()
-        skeleton = method._generate_skeleton("Test", None)
+        skeleton = method._generate_skeleton_heuristic("Test", None)
 
         # Should mention creating an outline/skeleton
         assert "Skeleton" in skeleton or "outline" in skeleton.lower()
@@ -745,37 +672,28 @@ class TestSkeletonOfThoughtExpansionGeneration:
     """Tests for expansion content generation."""
 
     def test_generate_expansion_includes_point_number(self):
-        """Test that _generate_expansion includes the point number."""
+        """Test that _generate_expansion_heuristic includes the point number."""
         method = SkeletonOfThought()
-        expansion = method._generate_expansion(
-            point_num=2,
-            skeleton_points=["1", "2", "3"],
-            guidance=None,
-            context=None
+        expansion = method._generate_expansion_heuristic(
+            point_num=2, skeleton_points=["1", "2", "3"], guidance=None, context=None
         )
 
         assert "Point 2" in expansion or "point 2" in expansion
 
     def test_generate_expansion_with_guidance(self):
-        """Test that _generate_expansion includes guidance when provided."""
+        """Test that _generate_expansion_heuristic includes guidance when provided."""
         method = SkeletonOfThought()
-        expansion = method._generate_expansion(
-            point_num=1,
-            skeleton_points=["1", "2", "3"],
-            guidance="Focus on examples",
-            context=None
+        expansion = method._generate_expansion_heuristic(
+            point_num=1, skeleton_points=["1", "2", "3"], guidance="Focus on examples", context=None
         )
 
         assert "Focus on examples" in expansion
 
     def test_generate_expansion_without_guidance(self):
-        """Test that _generate_expansion works without guidance."""
+        """Test that _generate_expansion_heuristic works without guidance."""
         method = SkeletonOfThought()
-        expansion = method._generate_expansion(
-            point_num=1,
-            skeleton_points=["1", "2", "3"],
-            guidance=None,
-            context=None
+        expansion = method._generate_expansion_heuristic(
+            point_num=1, skeleton_points=["1", "2", "3"], guidance=None, context=None
         )
 
         assert "Expansion" in expansion
@@ -786,27 +704,23 @@ class TestSkeletonOfThoughtAssembly:
     """Tests for final assembly generation."""
 
     def test_generate_assembly_includes_point_count(self):
-        """Test that _generate_assembly mentions number of points assembled."""
+        """Test that _generate_assembly_heuristic mentions number of points assembled."""
         method = SkeletonOfThought()
         expanded = {0: "exp1", 1: "exp2", 2: "exp3"}
 
-        assembly = method._generate_assembly(
-            expanded_points=expanded,
-            skeleton_points=["1", "2", "3"],
-            context=None
+        assembly = method._generate_assembly_heuristic(
+            expanded_points=expanded, skeleton_points=["1", "2", "3"], context=None
         )
 
         assert "3" in assembly  # Should mention 3 points
 
     def test_generate_assembly_has_structure(self):
-        """Test that _generate_assembly creates structured final answer."""
+        """Test that _generate_assembly_heuristic creates structured final answer."""
         method = SkeletonOfThought()
         expanded = {0: "exp1", 1: "exp2"}
 
-        assembly = method._generate_assembly(
-            expanded_points=expanded,
-            skeleton_points=["1", "2"],
-            context=None
+        assembly = method._generate_assembly_heuristic(
+            expanded_points=expanded, skeleton_points=["1", "2"], context=None
         )
 
         assert "Final" in assembly or "Assembly" in assembly
@@ -901,7 +815,7 @@ class TestSkeletonOfThoughtEdgeCases:
         method._total_points = 1
 
         # Expand the single point
-        expansion = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
@@ -938,10 +852,10 @@ class TestSkeletonOfThoughtEdgeCases:
         skeleton = await method.execute(session=session, input_text="Test")
 
         # Expand point 2 twice
-        exp1 = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session, previous_thought=skeleton, guidance="Expand point 2"
         )
-        exp2 = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session, previous_thought=skeleton, guidance="Expand point 2"
         )
 
@@ -991,7 +905,7 @@ class TestSkeletonOfThoughtEdgeCases:
         )
 
         # Second execution should reset
-        thought2 = await method.execute(session=session, input_text="Second question")
+        await method.execute(session=session, input_text="Second question")
 
         assert method._step_counter == 1  # Reset to 1
         assert len(method._expanded_points) == 0  # Cleared
@@ -1042,9 +956,7 @@ class TestSkeletonOfThoughtQualityMetrics:
             )
 
         # Create assembly
-        assembly = await method.continue_reasoning(
-            session=session, previous_thought=skeleton
-        )
+        assembly = await method.continue_reasoning(session=session, previous_thought=skeleton)
 
         assert assembly.confidence == 0.85
 
@@ -1061,8 +973,7 @@ class TestSkeletonOfThoughtIntegration:
 
         # Phase 1: Create skeleton
         skeleton = await method.execute(
-            session=session,
-            input_text="Explain the principles of software engineering"
+            session=session, input_text="Explain the principles of software engineering"
         )
         assert skeleton.type == ThoughtType.INITIAL
         assert method._phase == "expansion"
@@ -1072,9 +983,7 @@ class TestSkeletonOfThoughtIntegration:
         expansions = []
         for i in range(1, 6):
             exp = await method.continue_reasoning(
-                session=session,
-                previous_thought=skeleton,
-                guidance=f"Expand point {i}"
+                session=session, previous_thought=skeleton, guidance=f"Expand point {i}"
             )
             expansions.append(exp)
             assert exp.type == ThoughtType.BRANCH
@@ -1084,10 +993,7 @@ class TestSkeletonOfThoughtIntegration:
         assert session.thought_count == 6  # 1 skeleton + 5 expansions
 
         # Phase 3: Final assembly
-        assembly = await method.continue_reasoning(
-            session=session,
-            previous_thought=skeleton
-        )
+        assembly = await method.continue_reasoning(session=session, previous_thought=skeleton)
         assert assembly.type == ThoughtType.SYNTHESIS
         assert session.thought_count == 7  # + 1 assembly
 
@@ -1105,7 +1011,7 @@ class TestSkeletonOfThoughtIntegration:
         assert session.metrics.max_depth_reached == 0
 
         # Expand one point
-        expansion = await method.continue_reasoning(
+        await method.continue_reasoning(
             session=session, previous_thought=skeleton, guidance="Expand point 1"
         )
 
@@ -1123,9 +1029,7 @@ class TestSkeletonOfThoughtIntegration:
 
         await method.execute(session=session, input_text="Test")
 
-        thoughts = session.get_thoughts_by_method(
-            MethodIdentifier.SKELETON_OF_THOUGHT
-        )
+        thoughts = session.get_thoughts_by_method(MethodIdentifier.SKELETON_OF_THOUGHT)
 
         assert len(thoughts) == 1
         assert thoughts[0].method_id == MethodIdentifier.SKELETON_OF_THOUGHT

@@ -7,15 +7,12 @@ configuration, continuation, and edge cases.
 
 from __future__ import annotations
 
-from typing import Any
-
 import pytest
 
 from reasoning_mcp.methods.native.dialectic import DIALECTIC_METADATA, Dialectic
 from reasoning_mcp.models.core import (
     MethodCategory,
     MethodIdentifier,
-    SessionStatus,
     ThoughtType,
 )
 from reasoning_mcp.models.session import Session
@@ -175,9 +172,7 @@ class TestDialecticExecute:
         """Test that execute creates a thesis thought."""
         input_text = "Should we prioritize economic growth over environmental protection?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=input_text
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=input_text)
 
         assert thought is not None
         assert isinstance(thought, ThoughtNode)
@@ -188,9 +183,7 @@ class TestDialecticExecute:
         """Test that thesis has correct properties."""
         input_text = "Is artificial intelligence beneficial to humanity?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=input_text
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=input_text)
 
         assert thought.type == ThoughtType.INITIAL
         assert thought.method_id == MethodIdentifier.DIALECTIC
@@ -206,9 +199,7 @@ class TestDialecticExecute:
         """Test that execute adds thought to session."""
         input_text = "Is democracy the best form of government?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=input_text
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=input_text)
 
         assert active_session.thought_count == 1
         assert active_session.current_method == MethodIdentifier.DIALECTIC
@@ -220,9 +211,7 @@ class TestDialecticExecute:
         """Test that execute updates method internal state."""
         input_text = "Should we allow genetic engineering in humans?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=input_text
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=input_text)
 
         assert initialized_method._step_counter == 1
         assert initialized_method._phase == "antithesis"
@@ -293,9 +282,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that antithesis has correct properties."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         antithesis = await initialized_method.continue_reasoning(
             session=active_session,
@@ -315,9 +302,7 @@ class TestDialecticContinueReasoning:
     ):
         """Test continuing from antithesis to synthesis."""
         # Create thesis
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         # Create antithesis
         antithesis = await initialized_method.continue_reasoning(
@@ -339,9 +324,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that synthesis has correct properties."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -359,9 +342,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test creating multiple antitheses (branching)."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         # Create first antithesis
         antithesis1 = await initialized_method.continue_reasoning(
@@ -385,9 +366,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that phase is correctly detected from guidance keywords."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        await initialized_method.execute(session=active_session, input_text="Question?")
 
         # Test antithesis detection
         for keyword in ["antithesis", "opposing", "counter", "alternative"]:
@@ -406,12 +385,8 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test synthesis detection from guidance keywords."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
-        antithesis = await initialized_method.continue_reasoning(
-            session=active_session, previous_thought=thesis
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
+        await initialized_method.continue_reasoning(session=active_session, previous_thought=thesis)
 
         # Test synthesis detection
         for keyword in ["synthesis", "synthesize", "integrate", "combine", "conclude"]:
@@ -431,9 +406,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test continuing after synthesis creates continuation."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -469,9 +442,7 @@ class TestDialecticContinueReasoning:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that step counter increments with each continuation."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         assert thesis.step_number == 1
 
         antithesis = await initialized_method.continue_reasoning(
@@ -533,9 +504,7 @@ class TestDialecticThreePhaseStructure:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that antithesis content has expected structure."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -548,9 +517,7 @@ class TestDialecticThreePhaseStructure:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that synthesis content has expected structure."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -566,9 +533,7 @@ class TestDialecticThreePhaseStructure:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that confidence increases through synthesis."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -585,9 +550,7 @@ class TestDialecticThreePhaseStructure:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that metadata tracks previous phase."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -609,9 +572,7 @@ class TestDialecticMultiRoundDialectic:
     ):
         """Test that a second dialectic round can be initiated."""
         # First round
-        thesis1 = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis1 = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis1 = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis1
         )
@@ -633,9 +594,7 @@ class TestDialecticMultiRoundDialectic:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test complex branching with multiple antitheses."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         # Create multiple antitheses
         antitheses = []
@@ -643,7 +602,7 @@ class TestDialecticMultiRoundDialectic:
             ant = await initialized_method.continue_reasoning(
                 session=active_session,
                 previous_thought=thesis,
-                guidance=f"Alternative view {i+1}",
+                guidance=f"Alternative view {i + 1}",
             )
             antitheses.append(ant)
 
@@ -679,13 +638,9 @@ class TestDialecticEdgeCases:
         )
         assert antithesis.metadata["phase"] == "antithesis"
 
-    async def test_empty_guidance(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_empty_guidance(self, initialized_method: Dialectic, active_session: Session):
         """Test continue_reasoning with empty guidance."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         # Empty guidance should still infer phase from previous thought
         antithesis = await initialized_method.continue_reasoning(
@@ -694,13 +649,9 @@ class TestDialecticEdgeCases:
 
         assert antithesis.metadata["phase"] == "antithesis"
 
-    async def test_none_guidance(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_none_guidance(self, initialized_method: Dialectic, active_session: Session):
         """Test continue_reasoning with None guidance."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         # None guidance should use phase inference
         antithesis = await initialized_method.continue_reasoning(
@@ -709,9 +660,7 @@ class TestDialecticEdgeCases:
 
         assert antithesis.metadata["phase"] == "antithesis"
 
-    async def test_empty_context(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_empty_context(self, initialized_method: Dialectic, active_session: Session):
         """Test execute with empty context dict."""
         thought = await initialized_method.execute(
             session=active_session, input_text="Question?", context={}
@@ -719,9 +668,7 @@ class TestDialecticEdgeCases:
 
         assert thought.metadata["context"] == {}
 
-    async def test_none_context(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_none_context(self, initialized_method: Dialectic, active_session: Session):
         """Test execute with None context."""
         thought = await initialized_method.execute(
             session=active_session, input_text="Question?", context=None
@@ -729,15 +676,11 @@ class TestDialecticEdgeCases:
 
         assert thought.metadata["context"] == {}
 
-    async def test_very_long_input(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_very_long_input(self, initialized_method: Dialectic, active_session: Session):
         """Test with very long input text."""
         long_input = "Should we " + "really " * 100 + "do this?"
 
-        thought = await initialized_method.execute(
-            session=active_session, input_text=long_input
-        )
+        thought = await initialized_method.execute(session=active_session, input_text=long_input)
 
         assert thought.metadata["input"] == long_input
 
@@ -745,17 +688,13 @@ class TestDialecticEdgeCases:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that session metrics are updated correctly."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         assert active_session.metrics.total_thoughts == 1
         assert active_session.metrics.methods_used[str(MethodIdentifier.DIALECTIC)] == 1
         assert active_session.metrics.thought_types[str(ThoughtType.INITIAL)] == 1
 
-        antithesis = await initialized_method.continue_reasoning(
-            session=active_session, previous_thought=thesis
-        )
+        await initialized_method.continue_reasoning(session=active_session, previous_thought=thesis)
 
         assert active_session.metrics.total_thoughts == 2
         assert active_session.metrics.thought_types[str(ThoughtType.BRANCH)] == 1
@@ -764,9 +703,7 @@ class TestDialecticEdgeCases:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that guidance is preserved in thought metadata."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
 
         guidance_text = "Explore the counterargument thoroughly"
         antithesis = await initialized_method.continue_reasoning(
@@ -785,9 +722,7 @@ class TestDialecticSessionIntegration:
         self, initialized_method: Dialectic, active_session: Session
     ):
         """Test that thoughts form correct graph structure."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -800,23 +735,15 @@ class TestDialecticSessionIntegration:
         assert antithesis.parent_id == thesis.id
         assert synthesis.parent_id == antithesis.id
 
-    async def test_current_method_set(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_current_method_set(self, initialized_method: Dialectic, active_session: Session):
         """Test that current_method is set on session."""
-        await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        await initialized_method.execute(session=active_session, input_text="Question?")
 
         assert active_session.current_method == MethodIdentifier.DIALECTIC
 
-    async def test_depth_tracking(
-        self, initialized_method: Dialectic, active_session: Session
-    ):
+    async def test_depth_tracking(self, initialized_method: Dialectic, active_session: Session):
         """Test that depth is correctly tracked."""
-        thesis = await initialized_method.execute(
-            session=active_session, input_text="Question?"
-        )
+        thesis = await initialized_method.execute(session=active_session, input_text="Question?")
         antithesis = await initialized_method.continue_reasoning(
             session=active_session, previous_thought=thesis
         )
@@ -838,12 +765,8 @@ class TestDialecticSessionIntegration:
         await method2.initialize()
 
         # Both should be able to add thoughts to the same session
-        thought1 = await method1.execute(
-            session=active_session, input_text="First question?"
-        )
-        thought2 = await method2.execute(
-            session=active_session, input_text="Second question?"
-        )
+        thought1 = await method1.execute(session=active_session, input_text="First question?")
+        thought2 = await method2.execute(session=active_session, input_text="Second question?")
 
         assert active_session.thought_count == 2
         assert thought1.id != thought2.id

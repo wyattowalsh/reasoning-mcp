@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.ensemblers.base import EnsemblerBase, EnsemblerMetadata
+from reasoning_mcp.ensemblers.base import EnsemblerMetadata
 from reasoning_mcp.models.core import EnsemblerIdentifier
-
 
 DER_METADATA = EnsemblerMetadata(
     identifier=EnsemblerIdentifier.DER,
@@ -79,7 +78,7 @@ class Der:
 
         # Select best according to current policy (greedy for now)
         best_idx = solution_scores.index(max(solution_scores))
-        
+
         # Update state
         self._state["step"] += 1
         self._state["confidence"] = max(solution_scores)
@@ -90,7 +89,7 @@ class Der:
         """Estimate solution quality."""
         # Simple heuristic
         score = 0.5
-        
+
         if len(solution) > 10:
             score += 0.1
         if any(c.isdigit() for c in solution):
@@ -99,7 +98,7 @@ class Der:
             score += 0.1
         if any(word in solution.lower() for word in ["therefore", "answer", "result"]):
             score += 0.1
-            
+
         return min(1.0, score)
 
     async def select_models(
@@ -114,7 +113,7 @@ class Der:
 
         # Simple selection - use top models based on query complexity
         query_complexity = min(1.0, len(query) / 200)
-        
+
         num_models = max(2, int(len(available_models) * query_complexity))
         return available_models[:num_models]
 

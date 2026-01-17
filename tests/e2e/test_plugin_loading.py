@@ -16,7 +16,7 @@ from uuid import uuid4
 import pytest
 
 from reasoning_mcp.config import Settings
-from reasoning_mcp.methods.base import MethodMetadata, ReasoningMethod
+from reasoning_mcp.methods.base import MethodMetadata
 from reasoning_mcp.models import Session, ThoughtNode
 from reasoning_mcp.models.core import (
     MethodCategory,
@@ -25,10 +25,12 @@ from reasoning_mcp.models.core import (
     ThoughtType,
 )
 from reasoning_mcp.models.session import SessionConfig
-from reasoning_mcp.plugins.interface import Plugin, PluginContext, PluginError
+from reasoning_mcp.plugins.interface import PluginContext, PluginError
 from reasoning_mcp.plugins.loader import PluginLoader
 from reasoning_mcp.registry import MethodRegistry
 
+# Mark all tests in this module as e2e
+pytestmark = pytest.mark.e2e
 
 # ============================================================================
 # Mock Plugin Implementations
@@ -37,6 +39,8 @@ from reasoning_mcp.registry import MethodRegistry
 
 class MockReasoningMethod:
     """Mock reasoning method for plugin testing."""
+
+    streaming_context = None
 
     def __init__(
         self,
@@ -83,6 +87,7 @@ class MockReasoningMethod:
         input_text: str,
         *,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         self._execution_count += 1
         return ThoughtNode(
@@ -101,6 +106,7 @@ class MockReasoningMethod:
         *,
         guidance: str | None = None,
         context: dict[str, Any] | None = None,
+        execution_context: Any = None,
     ) -> ThoughtNode:
         return ThoughtNode(
             id=str(uuid4()),
@@ -114,6 +120,9 @@ class MockReasoningMethod:
 
     async def health_check(self) -> bool:
         return self._healthy
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        pass
 
 
 class MockPlugin:
@@ -169,7 +178,8 @@ class MockPlugin:
         if self._context:
             self._context.logger.info(f"Shutdown plugin: {self._name}")
 
-    def get_methods(self) -> list[tuple[ReasoningMethod, MethodMetadata]]:
+    def get_methods(self) -> list[tuple[Any, MethodMetadata]]:
+        """Return mock methods. Uses Any to avoid type issues with MockReasoningMethod."""
         method = MockReasoningMethod(
             identifier=f"{self._name}_method",
             name=f"{self._name} Method",
@@ -268,7 +278,7 @@ entry_point = "{name}.Plugin"
 class TestPluginDiscovery:
     """Tests for plugin discovery."""
 
-    async def test_plugin_discovery_empty_directory(self, plugin_loader: PluginLoader):
+    async def test_plugin_discovery_empty_directory(self, plugin_loader: PluginLoader) -> None:
         """Test discovery in empty directory."""
         discovered = await plugin_loader.discover()
         assert discovered == []
@@ -277,7 +287,7 @@ class TestPluginDiscovery:
         self,
         temp_plugin_dir: Path,
         plugin_loader: PluginLoader,
-    ):
+    ) -> None:
         """Test discovering a single plugin."""
         create_toml_plugin(temp_plugin_dir, "test_plugin")
 
@@ -291,7 +301,7 @@ class TestPluginDiscovery:
         self,
         temp_plugin_dir: Path,
         plugin_loader: PluginLoader,
-    ):
+    ) -> None:
         """Test discovering multiple plugins."""
         create_toml_plugin(temp_plugin_dir, "plugin_one", "1.0.0")
         create_toml_plugin(temp_plugin_dir, "plugin_two", "2.0.0")
@@ -307,7 +317,7 @@ class TestPluginDiscovery:
         self,
         temp_plugin_dir: Path,
         plugin_loader: PluginLoader,
-    ):
+    ) -> None:
         """Test that metadata is parsed correctly."""
         create_toml_plugin(temp_plugin_dir, "advanced_plugin", "2.1.0")
 
@@ -323,7 +333,7 @@ class TestPluginDiscovery:
         self,
         temp_plugin_dir: Path,
         plugin_loader: PluginLoader,
-    ):
+    ) -> None:
         """Test that invalid directories are ignored."""
         # Valid plugin
         create_toml_plugin(temp_plugin_dir, "valid_plugin")
@@ -342,7 +352,7 @@ class TestPluginDiscovery:
 class TestPluginInitialization:
     """Tests for plugin initialization."""
 
-    async def test_plugin_initialization_success(self, plugin_context: PluginContext):
+    async def test_plugin_initialization_success(self, plugin_context: PluginContext) -> None:
         """Test successful initialization."""
         plugin = MockPlugin(plugin_name="init_test")
 
@@ -356,7 +366,7 @@ class TestPluginInitialization:
     async def test_plugin_initialization_context_populated(
         self,
         plugin_context: PluginContext,
-    ):
+    ) -> None:
         """Test that context is populated."""
         plugin = MockPlugin(plugin_name="context_test")
         await plugin.initialize(plugin_context)
@@ -366,7 +376,7 @@ class TestPluginInitialization:
         assert plugin._context.settings is not None
         assert plugin._context.logger is not None
 
-    async def test_plugin_initialization_failure(self, plugin_context: PluginContext):
+    async def test_plugin_initialization_failure(self, plugin_context: PluginContext) -> None:
         """Test initialization failure handling."""
         plugin = MockPlugin(plugin_name="failing", init_error=True)
 
@@ -378,7 +388,7 @@ class TestPluginInitialization:
     async def test_plugin_initialization_registers_methods(
         self,
         plugin_context: PluginContext,
-    ):
+    ) -> None:
         """Test that methods can be registered after initialization."""
         plugin = MockPlugin(plugin_name="method_test")
         await plugin.initialize(plugin_context)
@@ -399,7 +409,7 @@ class TestPluginMethods:
         self,
         plugin_context: PluginContext,
         sample_session: Session,
-    ):
+    ) -> None:
         """Test executing plugin methods."""
         plugin = MockPlugin(plugin_name="exec_test")
         await plugin.initialize(plugin_context)
@@ -418,7 +428,7 @@ class TestPluginMethods:
         self,
         plugin_context: PluginContext,
         sample_session: Session,
-    ):
+    ) -> None:
         """Test that plugin methods work like native methods."""
         plugin = MockPlugin(plugin_name="native_test")
         await plugin.initialize(plugin_context)
@@ -450,7 +460,7 @@ class TestPluginMethods:
 class TestPluginUnloading:
     """Tests for plugin unloading."""
 
-    async def test_plugin_unloading_cleanup(self, plugin_context: PluginContext):
+    async def test_plugin_unloading_cleanup(self, plugin_context: PluginContext) -> None:
         """Test that cleanup is called during unload."""
         plugin = MockPlugin(plugin_name="cleanup_test")
         await plugin.initialize(plugin_context)
@@ -461,7 +471,7 @@ class TestPluginUnloading:
 
         assert plugin.shutdown_called
 
-    async def test_plugin_unloading_with_error(self, plugin_context: PluginContext):
+    async def test_plugin_unloading_with_error(self, plugin_context: PluginContext) -> None:
         """Test handling errors during unload."""
         plugin = MockPlugin(plugin_name="error_test", shutdown_error=True)
         await plugin.initialize(plugin_context)
@@ -473,7 +483,7 @@ class TestPluginUnloading:
 class TestPluginReload:
     """Tests for plugin reload."""
 
-    async def test_plugin_reload_changes_applied(self, plugin_context: PluginContext):
+    async def test_plugin_reload_changes_applied(self, plugin_context: PluginContext) -> None:
         """Test that changes are applied after reload."""
         # Load v1
         plugin_v1 = MockPlugin(plugin_name="reload_test", plugin_version="1.0.0")
@@ -498,7 +508,7 @@ class TestPluginReload:
 class TestPluginDependencies:
     """Tests for plugin dependencies."""
 
-    async def test_plugin_dependencies_declaration(self):
+    async def test_plugin_dependencies_declaration(self) -> None:
         """Test declaring plugin dependencies."""
         # Dependencies would be declared in plugin.toml
         # This test validates the concept
@@ -510,7 +520,7 @@ class TestPluginDependencies:
 class TestMultiplePlugins:
     """Tests for multiple plugin scenarios."""
 
-    async def test_multiple_plugins_isolation(self, plugin_context: PluginContext):
+    async def test_multiple_plugins_isolation(self, plugin_context: PluginContext) -> None:
         """Test that plugins are isolated."""
         plugin1 = MockPlugin(plugin_name="plugin_1")
         plugin2 = MockPlugin(plugin_name="plugin_2")
@@ -528,7 +538,7 @@ class TestMultiplePlugins:
         self,
         plugin_context: PluginContext,
         sample_session: Session,
-    ):
+    ) -> None:
         """Test concurrent execution of methods from different plugins."""
         plugin1 = MockPlugin(plugin_name="concurrent_1")
         plugin2 = MockPlugin(plugin_name="concurrent_2")
@@ -543,6 +553,7 @@ class TestMultiplePlugins:
         method2, _ = methods2[0]
 
         import asyncio
+
         results = await asyncio.gather(
             method1.execute(sample_session, "input 1"),
             method2.execute(sample_session, "input 2"),
@@ -556,7 +567,7 @@ class TestMultiplePlugins:
 class TestPluginSystemIntegration:
     """Integration tests for the complete plugin system."""
 
-    async def test_plugin_system_error_recovery(self, plugin_context: PluginContext):
+    async def test_plugin_system_error_recovery(self, plugin_context: PluginContext) -> None:
         """Test that system recovers from errors."""
         # Failing plugin
         failing = MockPlugin(plugin_name="failing", init_error=True)

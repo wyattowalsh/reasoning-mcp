@@ -1,4 +1,10 @@
+<div align="center">
+
+<img src="assets/logo.png" alt="reasoning-mcp logo" width="120" height="120">
+
 # AGENTS.md
+
+</div>
 
 > AI coding agent instructions for **reasoning-mcp**. Human docs: [README.md](./README.md)
 
@@ -7,16 +13,17 @@
 ## Project Overview
 <!-- agents-md:auto -->
 
-**reasoning-mcp** is a unified Model Context Protocol (MCP) server that aggregates, normalizes, and orchestrates 30+ advanced reasoning and thinking methodologies through a universal interface. Built with Python and FastMCP v2, it enables AI assistants to leverage sophisticated reasoning patterns including chain-of-thought, tree-of-thought, analogical reasoning, metacognitive reflection, and many more.
+**reasoning-mcp** is a unified Model Context Protocol (MCP) server that aggregates, normalizes, and orchestrates 100+ advanced reasoning and thinking methodologies through a universal interface. Built with Python and FastMCP v2, it enables AI assistants to leverage sophisticated reasoning patterns including chain-of-thought, tree-of-thought, analogical reasoning, metacognitive reflection, and many more.
 
 - **Type**: MCP server / library
 - **Languages**: Python 3.12+
 - **License**: MIT
 - **Package Manager**: uv
+- **Logo**: `assets/logo.png`
 
 ### Key Capabilities
 
-- 30+ native reasoning methods exposed as MCP tools
+- 100+ native reasoning methods exposed as MCP tools
 - Agentic composition and orchestration engine
 - Interactive reasoning via user elicitation
 - Background task support for long-running operations
@@ -108,7 +115,8 @@ reasoning-mcp/
 │       │   ├── parallel.py         # Parallel execution
 │       │   ├── sequence.py         # Sequential execution
 │       │   ├── switch.py           # Switch/case logic
-│       │   └── method.py           # Method execution
+│       │   ├── method.py           # Method execution
+│       │   └── registry.py         # Engine-specific registry
 │       ├── methods/                # Reasoning method implementations
 │       │   ├── base.py             # Base reasoning method class
 │       │   └── native/             # Built-in reasoning methods
@@ -134,6 +142,7 @@ reasoning-mcp/
 │           ├── evaluate.py         # Evaluation tools
 │           ├── methods.py          # Method invocation tools
 │           ├── reason.py           # Core reasoning tools
+│           ├── register.py         # Tool registration utilities
 │           └── session.py          # Session management tools
 ├── tests/                          # Test suite (mirrors src structure)
 │   ├── conftest.py                 # Shared fixtures
@@ -303,15 +312,24 @@ from reasoning_mcp.utils import logger
 ### Platform
 
 - **CI**: GitHub Actions
-- **Workflows**: `.github/workflows/ci.yml`
+- **Workflow**: `.github/workflows/ci.yml`
+- **Workflow Name**: `CI`
+- **Triggers**: Push to `main`, Pull Requests to `main`
 
 ### Pipeline Jobs
 
-| Job | Purpose | Trigger |
-|-----|---------|---------|
-| `lint` | Ruff check + format check | Push/PR to main |
-| `typecheck` | mypy strict mode | Push/PR to main |
-| `test` | pytest with coverage | Push/PR to main |
+| Job | Purpose | Key Steps |
+|-----|---------|-----------|
+| `lint` | Code quality | `ruff check .` + `ruff format --check .` |
+| `typecheck` | Type safety | `mypy src/` (strict mode) |
+| `test` | Tests & coverage | `pytest --cov` + artifact upload |
+
+### Coverage Artifacts
+
+The test job uploads coverage reports:
+- **Artifact name**: `coverage-report`
+- **Contents**: `coverage.xml`, `htmlcov/`
+- **Retention**: 30 days
 
 ### Required Checks
 
@@ -319,7 +337,7 @@ All three jobs must pass before merging:
 1. `uv run ruff check .` - No lint errors
 2. `uv run ruff format --check .` - Code is formatted
 3. `uv run mypy src/` - No type errors
-4. `uv run pytest --cov` - Tests pass
+4. `uv run pytest --cov` - Tests pass with coverage
 
 ---
 
@@ -537,5 +555,6 @@ git commit -m "your message"  # Should pass now
 
 ---
 
-**Last Updated**: January 7, 2026
+**Last Updated**: 2026-01-07
 **Format Version**: AAIF 1.0 (AI Agent Instruction Format)
+**Synced with agents-md-manager**: Yes

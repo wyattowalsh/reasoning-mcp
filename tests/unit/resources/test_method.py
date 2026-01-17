@@ -18,8 +18,7 @@ Tests cover:
 from __future__ import annotations
 
 import json
-from typing import Any
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -29,7 +28,6 @@ from reasoning_mcp.registry import MethodRegistry
 from reasoning_mcp.resources.method import register_method_resources
 from reasoning_mcp.server import AppContext
 
-
 # ============================================================================
 # Mock Classes and Fixtures
 # ============================================================================
@@ -37,6 +35,8 @@ from reasoning_mcp.server import AppContext
 
 class MockReasoningMethod:
     """Mock reasoning method for testing."""
+
+    streaming_context = None
 
     def __init__(self, identifier: str, name: str, description: str, category: str):
         self._identifier = identifier
@@ -63,14 +63,19 @@ class MockReasoningMethod:
     async def initialize(self) -> None:
         pass
 
-    async def execute(self, session, input_text, *, context=None):
+    async def execute(self, session, input_text, *, context=None, execution_context=None):
         pass
 
-    async def continue_reasoning(self, session, previous_thought, *, guidance=None, context=None):
+    async def continue_reasoning(
+        self, session, previous_thought, *, guidance=None, context=None, execution_context=None
+    ):
         pass
 
     async def health_check(self) -> bool:
         return True
+
+    async def emit_thought(self, content: str, confidence: float | None = None) -> None:
+        pass
 
 
 @pytest.fixture
@@ -180,11 +185,24 @@ def mock_mcp_server(mock_registry: MethodRegistry) -> MagicMock:
         def decorator(func):
             mcp._resource_handlers[uri_pattern] = func
             return func
+
         return decorator
 
     mcp.resource = mock_resource
 
     return mcp
+
+
+@pytest.fixture(autouse=True)
+def patch_get_app_context(mock_mcp_server: MagicMock):
+    """Autouse fixture to patch get_app_context for all tests.
+
+    This ensures that resource handlers calling get_app_context() from
+    reasoning_mcp.server receive the mock context set up by mock_mcp_server.
+    """
+    ctx = mock_mcp_server.get_context()
+    with patch("reasoning_mcp.server.get_app_context", return_value=ctx):
+        yield ctx
 
 
 # ============================================================================
@@ -490,7 +508,9 @@ class TestGetMethodSchema:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_get_schema_context_required_when_method_requires_it(self, mock_mcp_server: MagicMock):
+    async def test_get_schema_context_required_when_method_requires_it(
+        self, mock_mcp_server: MagicMock
+    ):
         """Test that context is required when method.requires_context is True."""
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}/schema"]
@@ -504,7 +524,9 @@ class TestGetMethodSchema:
 
     @pytest.mark.unit
     @pytest.mark.asyncio
-    async def test_get_schema_context_description_changes_when_required(self, mock_mcp_server: MagicMock):
+    async def test_get_schema_context_description_changes_when_required(
+        self, mock_mcp_server: MagicMock
+    ):
         """Test that context description changes when it's required."""
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}/schema"]
@@ -636,13 +658,14 @@ class TestErrorHandling:
             settings=MagicMock(),
             initialized=False,  # Not initialized
         )
-        mock_mcp_server.get_context.return_value = ctx
 
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}"]
 
-        with pytest.raises(RuntimeError, match="not initialized"):
-            await handler("chain_of_thought")
+        # Patch get_app_context to return the uninitialized context
+        with patch("reasoning_mcp.server.get_app_context", return_value=ctx):
+            with pytest.raises(RuntimeError, match="not initialized"):
+                await handler("chain_of_thought")
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -655,13 +678,14 @@ class TestErrorHandling:
             settings=MagicMock(),
             initialized=False,  # Not initialized
         )
-        mock_mcp_server.get_context.return_value = ctx
 
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}/schema"]
 
-        with pytest.raises(RuntimeError, match="not initialized"):
-            await handler("chain_of_thought")
+        # Patch get_app_context to return the uninitialized context
+        with patch("reasoning_mcp.server.get_app_context", return_value=ctx):
+            with pytest.raises(RuntimeError, match="not initialized"):
+                await handler("chain_of_thought")
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -674,13 +698,14 @@ class TestErrorHandling:
             settings=MagicMock(),
             initialized=True,
         )
-        mock_mcp_server.get_context.return_value = ctx
 
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}"]
 
-        with pytest.raises(ValueError, match="not found"):
-            await handler("chain_of_thought")
+        # Patch get_app_context to return the empty registry context
+        with patch("reasoning_mcp.server.get_app_context", return_value=ctx):
+            with pytest.raises(ValueError, match="not found"):
+                await handler("chain_of_thought")
 
     @pytest.mark.unit
     @pytest.mark.asyncio
@@ -693,13 +718,14 @@ class TestErrorHandling:
             settings=MagicMock(),
             initialized=True,
         )
-        mock_mcp_server.get_context.return_value = ctx
 
         register_method_resources(mock_mcp_server)
         handler = mock_mcp_server._resource_handlers["method://{method_id}/schema"]
 
-        with pytest.raises(ValueError, match="not found"):
-            await handler("chain_of_thought")
+        # Patch get_app_context to return the empty registry context
+        with patch("reasoning_mcp.server.get_app_context", return_value=ctx):
+            with pytest.raises(ValueError, match="not found"):
+                await handler("chain_of_thought")
 
 
 # ============================================================================
@@ -729,6 +755,7 @@ class TestResourceRegistration:
 
         # Should be coroutine functions
         import asyncio
+
         assert asyncio.iscoroutinefunction(metadata_handler)
         assert asyncio.iscoroutinefunction(schema_handler)
 
@@ -806,11 +833,20 @@ class TestResourceIntegration:
 
             # Verify all required fields
             required_fields = [
-                "identifier", "name", "description", "category",
-                "complexity", "supports_branching", "supports_revision",
-                "requires_context", "min_thoughts", "max_thoughts",
-                "avg_tokens_per_thought", "tags", "best_for",
-                "not_recommended_for"
+                "identifier",
+                "name",
+                "description",
+                "category",
+                "complexity",
+                "supports_branching",
+                "supports_revision",
+                "requires_context",
+                "min_thoughts",
+                "max_thoughts",
+                "avg_tokens_per_thought",
+                "tags",
+                "best_for",
+                "not_recommended_for",
             ]
             for field in required_fields:
                 assert field in metadata, f"Missing field: {field}"

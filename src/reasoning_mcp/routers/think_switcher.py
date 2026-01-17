@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 THINK_SWITCHER_METADATA = RouterMetadata(
     identifier=RouterIdentifier.THINK_SWITCHER,
@@ -49,9 +48,7 @@ class ThinkSwitcher:
         self._initialized = True
         self._current_mode = "normal"
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route to method based on selected mode."""
         if not self._initialized:
             raise RuntimeError("ThinkSwitcher must be initialized")
@@ -70,7 +67,7 @@ class ThinkSwitcher:
     def _select_mode(self, query: str) -> str:
         """Select thinking mode based on query."""
         query_len = len(query)
-        
+
         if query_len < 50:
             return "fast"
         elif query_len < 200:
@@ -78,9 +75,7 @@ class ThinkSwitcher:
         else:
             return "slow"
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget based on mode."""
         if not self._initialized:
             raise RuntimeError("ThinkSwitcher must be initialized")
@@ -91,7 +86,7 @@ class ThinkSwitcher:
         # Mode-based budget allocation
         mode_multipliers = {"fast": 0.3, "normal": 0.6, "slow": 1.0}
         allocated = int(budget * mode_multipliers[mode])
-        
+
         return {method: allocated}
 
     async def health_check(self) -> bool:

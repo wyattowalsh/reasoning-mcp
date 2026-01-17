@@ -9,9 +9,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from reasoning_mcp.routers.base import RouterBase, RouterMetadata
-from reasoning_mcp.models.core import RouterIdentifier, MethodIdentifier
-
+from reasoning_mcp.models.core import MethodIdentifier, RouterIdentifier
+from reasoning_mcp.routers.base import RouterMetadata
 
 ROUTER_R1_METADATA = RouterMetadata(
     identifier=RouterIdentifier.ROUTER_R1,
@@ -57,34 +56,34 @@ class RouterR1:
         }
         self._history = []
 
-    async def route(
-        self, query: str, context: dict[str, Any] | None = None
-    ) -> str:
+    async def route(self, query: str, context: dict[str, Any] | None = None) -> str:
         """Route using learned RL policy."""
         if not self._initialized:
             raise RuntimeError("RouterR1 must be initialized")
 
         # Simple policy-based selection
         # In practice, this would use a trained RL model
-        
+
         query_features = self._extract_features(query)
-        
+
         # Adjust policy based on features
         adjusted_policy = self._policy.copy()
         if query_features["complexity"] > 0.7:
             adjusted_policy[MethodIdentifier.TREE_OF_THOUGHTS] += 0.2
             adjusted_policy[MethodIdentifier.MCTS] += 0.1
-        
+
         # Select method with highest adjusted weight
-        best_method = max(adjusted_policy, key=adjusted_policy.get)
-        
+        best_method = max(adjusted_policy, key=lambda k: adjusted_policy.get(k, 0.0))
+
         # Record in history
-        self._history.append({
-            "query_hash": hash(query) % 10000,
-            "selected": best_method,
-            "policy_state": adjusted_policy,
-        })
-        
+        self._history.append(
+            {
+                "query_hash": hash(query) % 10000,
+                "selected": best_method,
+                "policy_state": adjusted_policy,
+            }
+        )
+
         return best_method
 
     def _extract_features(self, query: str) -> dict[str, float]:
@@ -95,9 +94,7 @@ class RouterR1:
             "has_math": 1.0 if any(c in query for c in "+-×÷=") else 0.0,
         }
 
-    async def allocate_budget(
-        self, query: str, budget: int
-    ) -> dict[str, int]:
+    async def allocate_budget(self, query: str, budget: int) -> dict[str, int]:
         """Allocate budget using policy weights."""
         if not self._initialized:
             raise RuntimeError("RouterR1 must be initialized")
@@ -105,10 +102,10 @@ class RouterR1:
         # Distribute budget according to policy
         allocation = {}
         total_weight = sum(self._policy.values())
-        
+
         for method, weight in self._policy.items():
             allocation[method] = int(budget * (weight / total_weight))
-        
+
         return allocation
 
     async def health_check(self) -> bool:

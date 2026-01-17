@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -148,8 +147,7 @@ class TestSelfConsistencyBasicExecution:
 
         # Find initial thought
         initial_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.INITIAL
+            t for t in session.graph.nodes.values() if t.type == ThoughtType.INITIAL
         ]
         assert len(initial_thoughts) == 1
         assert "Self-Consistency reasoning" in initial_thoughts[0].content
@@ -165,10 +163,7 @@ class TestSelfConsistencyBasicExecution:
         await method.execute(session, input_text)
 
         # Should have branch thoughts for each path
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 3
 
     @pytest.mark.asyncio
@@ -213,10 +208,7 @@ class TestSelfConsistencyPathGeneration:
         await method.execute(session, "Test question")
 
         # Count branch thoughts
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 5
 
     @pytest.mark.asyncio
@@ -228,10 +220,7 @@ class TestSelfConsistencyPathGeneration:
         await method.execute(session, "Test question", context={"num_paths": 4})
 
         # Should use context value
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 4
 
     @pytest.mark.asyncio
@@ -243,10 +232,7 @@ class TestSelfConsistencyPathGeneration:
         await method.execute(session, "Test question", context={"num_paths": 1})
 
         # Should use default value
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 3
 
     @pytest.mark.asyncio
@@ -257,10 +243,7 @@ class TestSelfConsistencyPathGeneration:
 
         await method.execute(session, "Test question")
 
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         branch_ids = [t.branch_id for t in branch_thoughts]
 
         # All branch_ids should be unique
@@ -277,16 +260,13 @@ class TestSelfConsistencyPathGeneration:
         await method.execute(session, "Test question")
 
         # Each path should have: branch + continuation + conclusion = 3 thoughts per path
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         continuation_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.CONTINUATION
+            t for t in session.graph.nodes.values() if t.type == ThoughtType.CONTINUATION
         ]
         conclusion_thoughts = [
-            t for t in session.graph.nodes.values()
+            t
+            for t in session.graph.nodes.values()
             if t.type == ThoughtType.CONCLUSION and t.metadata.get("is_path_conclusion")
         ]
 
@@ -422,9 +402,7 @@ class TestSelfConsistencyContinueReasoning:
 
         initial_result = await method.execute(session, "Test question")
         continued = await method.continue_reasoning(
-            session,
-            initial_result,
-            guidance="Please verify the calculation"
+            session, initial_result, guidance="Please verify the calculation"
         )
 
         assert "Please verify the calculation" in continued.content
@@ -477,11 +455,7 @@ class TestSelfConsistencyContinueReasoning:
             type=ThoughtType.SYNTHESIS,
             method_id=MethodIdentifier.SELF_CONSISTENCY,
             content="Test",
-            metadata={
-                "majority_answer": "test",
-                "agreement_rate": 0.9,
-                "consistency_score": 0.95
-            }
+            metadata={"majority_answer": "test", "agreement_rate": 0.9, "consistency_score": 0.95},
         )
         session.add_thought(initial_result)
 
@@ -501,11 +475,7 @@ class TestSelfConsistencyContinueReasoning:
             type=ThoughtType.SYNTHESIS,
             method_id=MethodIdentifier.SELF_CONSISTENCY,
             content="Test",
-            metadata={
-                "majority_answer": "test",
-                "agreement_rate": 0.4,
-                "consistency_score": 0.5
-            }
+            metadata={"majority_answer": "test", "agreement_rate": 0.4, "consistency_score": 0.5},
         )
         session.add_thought(initial_result)
 
@@ -569,10 +539,7 @@ class TestSelfConsistencyPathDiversity:
 
         await method.execute(session, "Test question")
 
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
 
         # Extract reasoning content
         reasoning_contents = [t.content for t in branch_thoughts]
@@ -589,10 +556,7 @@ class TestSelfConsistencyPathDiversity:
 
         await method.execute(session, "Test question")
 
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
 
         path_numbers = [t.metadata.get("path_number") for t in branch_thoughts]
         path_numbers.sort()
@@ -622,7 +586,7 @@ class TestSelfConsistencyFinalAnswerSelection:
     @pytest.mark.asyncio
     async def test_confidence_increases_with_agreement(self):
         """Test that confidence increases with higher agreement rates."""
-        method = SelfConsistency(num_paths=3)
+        SelfConsistency(num_paths=3)
 
         # We can't easily mock different agreement rates in execute,
         # but we can test the formula
@@ -664,10 +628,7 @@ class TestSelfConsistencyEdgeCases:
         result = await method.execute(session, "Test question")
 
         assert result is not None
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 2
 
     @pytest.mark.asyncio
@@ -679,10 +640,7 @@ class TestSelfConsistencyEdgeCases:
         result = await method.execute(session, "Test question")
 
         assert result is not None
-        branch_thoughts = [
-            t for t in session.graph.nodes.values()
-            if t.type == ThoughtType.BRANCH
-        ]
+        branch_thoughts = [t for t in session.graph.nodes.values() if t.type == ThoughtType.BRANCH]
         assert len(branch_thoughts) == 10
 
     @pytest.mark.asyncio
@@ -812,8 +770,8 @@ class TestSelfConsistencyHelperMethods:
             conclusions=["4", "4", "5"],
             majority_answer="4",
             vote_counts={"4": 2, "5": 1},
-            agreement_rate=2/3,
-            num_paths=3
+            agreement_rate=2 / 3,
+            num_paths=3,
         )
 
         assert "Self-Consistency Analysis Complete" in result
@@ -833,7 +791,7 @@ class TestSelfConsistencyHelperMethods:
             majority_answer="A",
             vote_counts={"A": 5},
             agreement_rate=1.0,
-            num_paths=5
+            num_paths=5,
         )
 
         assert "Strong consensus" in result
@@ -848,7 +806,7 @@ class TestSelfConsistencyHelperMethods:
             majority_answer="A",
             vote_counts={"A": 3, "B": 2},
             agreement_rate=0.6,
-            num_paths=5
+            num_paths=5,
         )
 
         assert "Moderate consensus" in result
@@ -863,7 +821,7 @@ class TestSelfConsistencyHelperMethods:
             majority_answer="A",
             vote_counts={"A": 1, "B": 1, "C": 1, "D": 1, "E": 1},
             agreement_rate=0.2,
-            num_paths=5
+            num_paths=5,
         )
 
         assert "Low consensus" in result
